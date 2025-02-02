@@ -144,8 +144,6 @@ The distribution of the length of bouts of reaches is highly skewed. Most bouts 
 
 # 3. Frequentist Analysis
 
-Perform the frequentist analysis in this session.
-
 ## 3.1 Proposed Frequentist Model(s)
 
 In this section, formulate the frequentist model(s) you are going to use to analyze your dataset. Be sure to first define the notations involved in the model(s).
@@ -154,7 +152,15 @@ In this section, formulate the frequentist model(s) you are going to use to anal
 
 In this section, \* discuss how you fit the proposed frequentist model(s). \* report the results. \* interpret the results in the context.
 
-```{r}
+The two frequentist models were fit by compiling the predictor neurons into matrices and solving for Beta using the following equation:
+
+$$
+\hat{\beta} = (X^T X)^{-1} (X^T y)
+$$
+
+The resulting Beta is a column vector (or matrix for Model 4) containing the intercept value and the 312 coefficients for the predictors. Models 1-3 are representative of our first frequentist model, which creates 3 separate models for each Neuron that we are analyzing and trying to predict for. Model 4 is representative of our second frequentist model, which compiles all three response variables into a single matrix and tries to predict for all of them together, hence why Beta is a matrix with 3 columns for Model 4.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -163,73 +169,69 @@ response_neurons = c("Neuron_111", "Neuron_222", "Neuron_49")
 predictor_neurons = setdiff(neurons, response_neurons)
 ```
 
-```{r}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 X = as.matrix(spks_t[, predictor_neurons])
 X = cbind(Intercept = 1, X)
 
 Y1 = spks_t[, "Neuron_111"]
 
 beta1 = solve(t(X) %*% X) %*% t(X) %*% Y1
-```
-
-```{r}
 Y1_pred = X %*% beta1
 residuals1 = Y1 - Y1_pred
 
-plot(Y1_pred, residuals1,
-     xlab="Fitted Values",
-     ylab="Residuals",
-     main="Residuals Plot")
-```
-
-```{r}
 Y2 = spks_t[, "Neuron_222"]
 
 beta2 = solve(t(X) %*% X) %*% t(X) %*% Y2
-```
-
-```{r}
 Y2_pred = X %*% beta2
 residuals2 = Y2 - Y2_pred
 
-plot(Y2_pred, residuals2,
-     xlab="Fitted Values",
-     ylab="Residuals",
-     main="Residuals Plot")
-```
-
-```{r}
 Y3 = spks_t[, "Neuron_49"]
 
 beta3 = solve(t(X) %*% X) %*% t(X) %*% Y3
-```
-
-```{r}
 Y3_pred = X %*% beta3
 residuals3 = Y3 - Y3_pred
 
-plot(Y3_pred, residuals3,
-     xlab="Fitted Values",
-     ylab="Residuals",
-     main="Residuals Plot")
-```
-
-
-```{r}
 Y = as.matrix(spks_t[, c("Neuron_111", "Neuron_222", "Neuron_49")])
 
 beta = solve(t(X) %*% X) %*% t(X) %*% Y
-```
-
-```{r}
 Y_pred = X %*% beta
 residuals = Y - Y_pred
+```
+
+```{r figs6, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs6}Residual Plots for Frequentist Models"}
+par(mfrow=c(1, 4), mar=c(5, 4, 4, 2) + 0.1)
+
+plot(Y1_pred, residuals1,
+     xlab="Fitted Values (Model 1)",
+     ylab="Residuals (Model 1)",
+     main="Residuals Plot (Model 1)",
+     col="yellow")
+abline(h=0, col="red", lwd=2)
+
+plot(Y2_pred, residuals2,
+     xlab="Fitted Values (Model 2)",
+     ylab="Residuals (Model 2)",
+     main="Residuals Plot (Model 2)",
+     col="blue")
+abline(h=0, col="red", lwd=2)
+
+plot(Y3_pred, residuals3,
+     xlab="Fitted Values (Model 3)",
+     ylab="Residuals (Model 3)",
+     main="Residuals Plot (Model 3)",
+     col="green")
+abline(h=0, col="red", lwd=2)
 
 plot(Y_pred, residuals,
-     xlab="Fitted Values",
-     ylab="Residuals",
-     main="Residuals Plot")
+     xlab="Fitted Values (Model 4)",
+     ylab="Residuals (Model 4)",
+     main="Residuals Plot (Model 4)",
+     col="purple")
+abline(h=0, col="red", lwd=2)
+
+par(mfrow=c(1,1))
 ```
+
 
 
 # 4. Bayesian Analysis
