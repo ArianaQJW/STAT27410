@@ -2,6 +2,7 @@
 title: "STAT 27410 Final Project Proposal"
 author: "Ariana Qin & Robert Rodriguez"
 fontsize: 12pt
+bibliography: references.bib
 output:
   pdf_document:
     fig_caption: yes
@@ -232,7 +233,7 @@ abline(h=0, col="red", lwd=2)
 par(mfrow=c(1,1))
 ```
 
-
+After fitting the models, the residual plots shown in the Figure above were created to compare the strength of our frequentist models.
 
 # 4. Bayesian Analysis
 
@@ -270,11 +271,8 @@ Please also discuss briefly the contributions of your teammate(s), as well as th
 
 # References
 
-Allaire, JJ, Yihui Xie, Jonathan McPherson, Javier Luraschi, Kevin Ushey, Aron Atkins, Hadley Wickham, Joe Cheng, Winston Chang, and Richard Iannone. 2022. Rmarkdown: Dynamic Documents for r.
-
-Kotekal S, MacLean JN. Recurrent interactions can explain the variance in single trial responses. PLoS Comput Biol. 2020 Jan 30;16(1):e1007591. doi: 10.1371/journal.pcbi.1007591. PMID: 31999693; PMCID: PMC7012453.
-
-Warnick R, Guindani M, Erhardt E, Allen E, Calhoun V, Vannucci M. A Bayesian Approach for Estimating Dynamic Functional Network Connectivity in fMRI Data. J Am Stat Assoc. 2018;113(521):134-151. doi: 10.1080/01621459.2017.1379404. Epub 2018 May 16. PMID: 30853734; PMCID: PMC6405235.
+::: {#refs}
+:::
 
 # Appendix
 
