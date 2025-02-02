@@ -1,0 +1,346 @@
+---
+title: "STAT 27410 Final Project Proposal"
+author: "Ariana Qin & Robert Rodriguez"
+fontsize: 12pt
+output:
+  pdf_document:
+    fig_caption: yes
+  html_document:
+    df_print: paged
+  word_document: default
+  geometry: margin=0.75in
+fig_crop: no
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
+options(scipen=6, digits=6)
+spks = read_csv("spks.csv")
+redlabels = read_csv("redlabels.csv")
+cell_pos = read_csv("cell_pos.csv")
+calcium_reach_times = read_csv("calcium_reach_times.csv")
+```
+
+# 1. Introduction
+
+Complex motor skills, which are precise and non-stereotypical movements, are essential for survival. For example, squirrels need to jump from branches to branches and eagles need to catch small-sized prey. These movements are difficult and require effort. We are interested in understanding brain activity while learning complex motor skills. Specifically, we are interested in the neural dynamics and network structure of the primary motor (M1) cortex, which can be seen as a recurrent neural network, receiving upstream signals on motor planning and body position, and outputting commands to downstream areas, such as the spinal cord and brainstem, to control movement.
+
+## 1.1 Dataset
+
+In this paper, we will study the neural dynamics of motor learning using the data from the MacLean lab, a computational neuroscience lab at UChicago. In each experiment session, the mouse reached for a small grain of rice, while its brain was attached to a microscope. As a result, we have data regarding the behavior and the neural dynamics of the M1 cortex:
+
+\begin{itemize}
+\item Time series data of neural spikes: This is a time series of the probability of a spike at each time bin, inferred from the fluorescence values recorded by the microscope. Each time bin is 30 ms. We have 315 neurons and 148660 time bins.
+
+\item Inhibitory or excitatory neurons: This is an array that stores whether a neuron is inhibitory or excitatory, namely whether it increases or decreases the level of activity in downstream neurons.
+
+\item Spatial distribution: This is an array of 2-tuples that stores the x, y coordinate of each neuron.
+
+\item Mouse behavior: This is an array of 2-tuples that stores the start and end time of each bout of reaches.
+\end{itemize}
+
+## 1.2 Complications of Dataset
+
+The dataset chosen is not without complications, however, some of these complications include:
+
+\begin{itemize}
+\item Incomplete network: Due to limitations of imaging techniques, the experiment records an incomplete network. We cannot record the complete M1 cortex, and not even all the neurons in the field of view. Hence, the recording is a small subset of neurons in the M1 cortex. 
+
+\item Upstream signal: This entire brain region receives shared upstream signals. However, we cannot measure the upstream signals.
+\end{itemize}
+
+## 1.3 Scientific Question
+
+We are interested in inferring the underlying network structure given the observed neural dynamics. Traditionally, this question is approached using the functional connectivity framework, where nodes correspond to neurons and edges weights correspond to activity correlation, measured by Pearson correlation. We are interested in exploring frequentist and Bayesian approaches to study the underlying network structure that gives rise to the observed dynamics. In the Bayesian framework, previous research has estimated functional connectivity using the hidden Markov model on fMRI data across varying behavioral states (Warnick et al., 2018).
+
+**We are interested in inferring the underlying network structure given the observed neural dynamics. More specifically we would like to focus on analyzing the neuron dynamics of a cluster of selected neurons, determining how the neurons in question depend on the other neurons in the dataset and the correlation and connections present between the clustered neurons. The cluster of selected neurons include Neuron 111 as well as a few of the closest neurons to Neuron 111. The choice of selecting a cluster around Neuron 111 comes from exploratory data analysis which showed that Neuron 111 had relatively high correlations with a variety of different neurons, making it a neuron of interest and one that we believe will provide the most interesting exploration and analysis of our data. We are interested in using both frequentist and Bayesian approaches to study the underlying network structure that gives rise to the observed dynamics. For a frequentist approach, we plan on creating multiple regression models in order to determine both the neuron dynamics and connections that the clustered neurons have with the other neurons in the dataset but also searching for correlations and connections within the clustered neurons themselves. The Bayesian approach will involve creating Bayesian hierarchical models to further analyze the neuron dynamics and underlying network structure.**
+
+Another question of interest is using dynamics of other neurons to predict the dynamics of a given neuron. It is known that recurrent interactions can explain variance in single trial responses using linear models (Kotekal et al., 2020). Therefore, we are interested in utilizing frequentist and Bayesian methods to predict neuron activity.
+
+# 2. Exploratory Data Analysis
+
+## 2.1 Neuron Spikes:
+
+```{r figs, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs}"}
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+time_points = seq(0, by = 30 / 1000, length.out = 148468)
+spks_t$time = time_points
+
+ggplot(spks_t, aes(x = time, y = Neuron_111)) +
+  geom_line(size = 1) +
+  labs(title = "Time Series", x = "Time", y = "Neuron 111") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## 2.2 Neuron Types:
+
+```{r figs2, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs2}Distribution of Excitatory vs Inhibitory Neurons"}
+colnames(redlabels) = c("neuron_type")
+redlabels$neuron_type = factor(redlabels$neuron_type, levels= c(TRUE, FALSE), labels=c("Inhibitory", "Excitatory"))
+ggplot(redlabels, aes(x = neuron_type)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title= "Number of Excitatory and Inhibitory Neurons", x = "Neuron Type", y = "Number of Neurons") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+There are many more excitatory neurons than inhibitory neurons.
+
+## 2.3 Correlation between Neuron Spikes:
+
+```{r figs3, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs3}Heatmap of Pearson Correlation of Neuron Spikes"}
+spks_t = as.data.frame(t(spks))
+cor_matrix = cor(spks_t, use = "pairwise.complete.obs")
+diag(cor_matrix) = NA
+
+library(pheatmap)
+pheatmap(cor_matrix, 
+         color = colorRampPalette(c("blue", "white", "red"))(50),
+         main = "Pearson Correlation Heatmap",
+         treeheight_row = 0,
+         treeheight_col = 0,
+         show_rownames = FALSE,
+         show_colnames = FALSE
+)
+```
+
+The Pearson correlations between neurons are relatively low across the board. Most values are positive. Negative values are small in magnitude. If we were to use the correlation matrix as the adjacency matrix for the network, we need to threshold at the 75th percentile, resulting in a sparse matrix with only positive values.
+
+## 2.4 Neuron Positions:
+
+```{r figs4, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs4}Spacial Positioning of Neurons"}
+colnames(cell_pos) = c("x", "y")
+color_pos = cbind(cell_pos, redlabels)
+ggplot(color_pos, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title="Spatial Position of Neurons", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+In the field of view, the observation of neurons is much denser in some areas than others. In addition, the inhibitory neurons are dispersed throughout the field of view.
+
+## 2.5 Reach Times:
+
+```{r figs5, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs5}Distribution of Length of Reach Times"}
+colnames(calcium_reach_times) = c("start", "end")
+calcium_reach_times$reach_time = calcium_reach_times$end - calcium_reach_times$start
+ggplot(calcium_reach_times, aes(x=reach_time)) +
+  geom_histogram(binwidth=20) +
+  theme_minimal() +
+  labs(title= "Distribution of Reach Times", x = "Reach Time", y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+The distribution of the length of bouts of reaches is highly skewed. Most bouts are very short, but there are a few long bouts of reaches.
+
+# 3. Frequentist Analysis
+
+Perform the frequentist analysis in this session.
+
+## 3.1 Proposed Frequentist Model(s)
+
+In this section, formulate the frequentist model(s) you are going to use to analyze your dataset. Be sure to first define the notations involved in the model(s).
+
+## 3.2 Fitting the Frequentist Model(s)
+
+In this section, \* discuss how you fit the proposed frequentist model(s). \* report the results. \* interpret the results in the context.
+
+```{r}
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_111", "Neuron_222", "Neuron_49")
+predictor_neurons = setdiff(neurons, response_neurons)
+```
+
+```{r}
+X = as.matrix(spks_t[, predictor_neurons])
+X = cbind(Intercept = 1, X)
+
+Y1 = spks_t[, "Neuron_111"]
+
+beta1 = solve(t(X) %*% X) %*% t(X) %*% Y1
+```
+
+```{r}
+Y1_pred = X %*% beta1
+residuals1 = Y1 - Y1_pred
+
+plot(Y1_pred, residuals1,
+     xlab="Fitted Values",
+     ylab="Residuals",
+     main="Residuals Plot")
+```
+
+```{r}
+Y2 = spks_t[, "Neuron_222"]
+
+beta2 = solve(t(X) %*% X) %*% t(X) %*% Y2
+```
+
+```{r}
+Y2_pred = X %*% beta2
+residuals2 = Y2 - Y2_pred
+
+plot(Y2_pred, residuals2,
+     xlab="Fitted Values",
+     ylab="Residuals",
+     main="Residuals Plot")
+```
+
+```{r}
+Y3 = spks_t[, "Neuron_49"]
+
+beta3 = solve(t(X) %*% X) %*% t(X) %*% Y3
+```
+
+```{r}
+Y3_pred = X %*% beta3
+residuals3 = Y3 - Y3_pred
+
+plot(Y3_pred, residuals3,
+     xlab="Fitted Values",
+     ylab="Residuals",
+     main="Residuals Plot")
+```
+
+
+```{r}
+Y = as.matrix(spks_t[, c("Neuron_111", "Neuron_222", "Neuron_49")])
+
+beta = solve(t(X) %*% X) %*% t(X) %*% Y
+```
+
+```{r}
+Y_pred = X %*% beta
+residuals = Y - Y_pred
+
+plot(Y_pred, residuals,
+     xlab="Fitted Values",
+     ylab="Residuals",
+     main="Residuals Plot")
+```
+
+
+# 4. Bayesian Analysis
+
+Propose the Bayesian analysis you will work on during the rest of the quarter in this session.
+
+## 4.1 Proposed Bayesian Model(s)
+
+In this section,
+
+formulate the Bayesian model(s) you are going to use to analyze your dataset. Be sure to first define the notations involved in the model(s).
+
+discuss how you will elicit the prior(s).
+
+## 4.2 Fitting the Bayesian model(s)
+
+Propose how you will fit the proposed Bayesian models.
+
+Propose how you will perform sensitivity analysis of the Bayesian models, i.e., how the posterior distribution is affected by the prior
+
+Propose how you will check the MCMC convergence.
+
+## 4.3 Prediction
+
+In this section, propose how you can make predictions using the Bayesian model.
+
+# 5. Discussion
+
+In this section, discuss how you can improve your model.
+
+# 6. Contributions
+
+In this section, discuss the percentage of your contributions to the development final project proposal. Report the number of hours you have worked on the proposal, and the sections you are involved.
+
+Please also discuss briefly the contributions of your teammate(s), as well as the help and support you got from your teammates(s).
+
+# References
+
+Allaire, JJ, Yihui Xie, Jonathan McPherson, Javier Luraschi, Kevin Ushey, Aron Atkins, Hadley Wickham, Joe Cheng, Winston Chang, and Richard Iannone. 2022. Rmarkdown: Dynamic Documents for r.
+
+Kotekal S, MacLean JN. Recurrent interactions can explain the variance in single trial responses. PLoS Comput Biol. 2020 Jan 30;16(1):e1007591. doi: 10.1371/journal.pcbi.1007591. PMID: 31999693; PMCID: PMC7012453.
+
+Warnick R, Guindani M, Erhardt E, Allen E, Calhoun V, Vannucci M. A Bayesian Approach for Estimating Dynamic Functional Network Connectivity in fMRI Data. J Am Stat Assoc. 2018;113(521):134-151. doi: 10.1080/01621459.2017.1379404. Epub 2018 May 16. PMID: 30853734; PMCID: PMC6405235.
+
+# Appendix
+
+R code for Exploratory Data Analysis graphs:
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Neuron 111 Time Series Plot
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+time_points = seq(0, by = 30 / 1000, length.out = 148468)
+spks_t$time = time_points
+
+ggplot(spks_t, aes(x = time, y = Neuron_111)) +
+  geom_line(size = 1) +
+  labs(title = "Time Series", x = "Time", y = "Neuron 111") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Neuron Type Distribution
+colnames(redlabels) = c("neuron_type")
+redlabels$neuron_type = factor(redlabels$neuron_type, levels= c(TRUE, FALSE), labels=c("Inhibitory", "Excitatory"))
+ggplot(redlabels, aes(x = neuron_type)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title= "Number of Excitatory and Inhibitory Neurons", x = "Neuron Type", y = "Number of Neurons") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Pearson Correlation Heatmap
+spks_t = as.data.frame(t(spks))
+cor_matrix = cor(spks_t, use = "pairwise.complete.obs")
+diag(cor_matrix) = NA
+
+library(pheatmap)
+pheatmap(cor_matrix, 
+         color = colorRampPalette(c("blue", "white", "red"))(50),
+         main = "Pearson Correlation Heatmap",
+         treeheight_row = 0,
+         treeheight_col = 0,
+         show_rownames = FALSE,
+         show_colnames = FALSE
+)
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Spatial Position Plot
+colnames(cell_pos) = c("x", "y")
+color_pos = cbind(cell_pos, redlabels)
+ggplot(color_pos, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title="Spatial Position of Neurons", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Distribution of Reach Times
+colnames(calcium_reach_times) = c("start", "end")
+calcium_reach_times$reach_time = calcium_reach_times$end - calcium_reach_times$start
+ggplot(calcium_reach_times, aes(x=reach_time)) +
+  geom_histogram(binwidth=20) +
+  theme_minimal() +
+  labs(title= "Distribution of Reach Times", x = "Reach Time", y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
