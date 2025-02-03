@@ -190,7 +190,7 @@ $$ y_{\text{281}} = \alpha_{\text{281}} + X \beta_{\text{281}} $$
 
 Model 2: 
 
-$$ \tilde{y} = \tilde{\alpha}*\mathbb{1} + \tilde{X} \tilde{\beta}$$
+$$ \tilde{y} =\mathbf{1} \tilde{\alpha} + \tilde{X} \tilde{\beta}$$
 
 Where: 
 
@@ -223,7 +223,7 @@ $$
 \hat{\beta} = (X^T X)^{-1} (X^T y)
 $$
 
-The resulting Beta is a column vector (or matrix for Model 4) containing the intercept value and the 312 coefficients for the predictors. Models 1-3 are representative of our first frequentist model, which creates 3 separate models for each Neuron that we are analyzing and trying to predict for. Model 4 is representative of our second frequentist model, which compiles all three response variables into a single matrix and tries to predict for all of them together, hence why Beta is a matrix with 3 columns for Model 4.
+The resulting Beta is a column vector containing the intercept value and the 312 coefficients for the predictors. The models for Neurons 234, 168, and 281 are representative of our first frequentist model, which creates 3 separate models for each Neuron that we are analyzing and trying to predict for. The concatenated model is representative of our second frequentist model, which compiles all three response variables into a single matrix and tries to predict for all of them together.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 spks_t = as.data.frame(t(spks))
@@ -278,6 +278,118 @@ RSS = sum((Y - Y_pred)^2)
 TSS = sum((Y - mean(Y))^2)
 R_squared = 1 - RSS / TSS
 ```
+
+Here, we display the value of the coefficients for the first few predictors in table 1, 2, 3, 4. (See full set of coefficients in Appendix. (coming))
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0057000007 \\
+        Neuron\_1  & -0.0007161198 \\
+        Neuron\_2  &  0.0277343380 \\
+        Neuron\_3  &  0.0016065925 \\
+        Neuron\_4  &  0.0027178334 \\
+        Neuron\_5  & -0.0057370064 \\
+        Neuron\_6  &  0.0012776469 \\
+        Neuron\_7  & -0.0024053779 \\
+        Neuron\_8  &  0.0059968300 \\
+        Neuron\_9  &  0.0044756078 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 1}
+    \label{tab:model3_coefficients}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0031776832 \\
+        Neuron\_1  &  0.0393005011 \\
+        Neuron\_2  & -0.0094288755 \\
+        Neuron\_3  &  0.0087287020 \\
+        Neuron\_4  & -0.0084431688 \\
+        Neuron\_5  & -0.0062233763 \\
+        Neuron\_6  &  0.0077952762 \\
+        Neuron\_7  & -0.0004962535 \\
+        Neuron\_8  & -0.0051638573 \\
+        Neuron\_9  & -0.0047117552 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 2}
+    \label{tab:model4_coefficients}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0026048919 \\
+        Neuron\_1  &  0.0353755239 \\
+        Neuron\_2  &  0.0107636538 \\
+        Neuron\_3  & -0.0014463192 \\
+        Neuron\_4  & -0.0005627236 \\
+        Neuron\_5  & -0.0054332369 \\
+        Neuron\_6  &  0.0055248920 \\
+        Neuron\_7  &  0.0012933504 \\
+        Neuron\_8  & -0.0011811706 \\
+        Neuron\_9  &  0.0022120294 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 3}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0038275253 \\
+        Neuron\_1  &  0.0246533017 \\
+        Neuron\_2  &  0.0096897054 \\
+        Neuron\_3  &  0.0029629918 \\
+        Neuron\_4  & -0.0020960197 \\
+        Neuron\_5  & -0.0057978732 \\
+        Neuron\_6  &  0.0048659383 \\
+        Neuron\_7  & -0.0005360937 \\
+        Neuron\_8  & -0.0001160659 \\
+        Neuron\_9  &  0.0006586274 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 4}
+    \label{tab:model2_coefficients}
+\end{table}
+
+Table 5 summarizes the model performance, measured by $R^2$: 
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Model & $R^2$ \\
+        \midrule
+        Model 1 & 0.075 \\
+        Model 2 & 0.116 \\
+        Model 3 & 0.153 \\
+        Model 4 & 0.039 \\
+        \bottomrule
+    \end{tabular}
+    \caption{$R^2$ values for different models}
+\end{table}
+
+
+\newpage
+## 3.3 Comparing the Frequentist Models
+
+After fitting the models, the residual plots shown in Figure 7 were created to compare the strength of our frequentist models. We also calculated the $R^2$ values for all of the models for strength comparison. None of the residual plots appear to be traditionally desirable, with all of them lacking a random spread across the x-axis and instead making similar patterns to one another. However, this does not mean the models are all bad or useless. Due to lack of certainty when making predictions in the neuroscience field, what might appear as a bad or weak model in a different statistical context is considered an acceptable model in a neuroscience context. The residual plots for our first frequentist model (the residual plots belonging to Neurons 234, 168, and 281) are slightly more desirable than the residual plot for our second frequentist model (the residual plot belonging to the Concatenated Model) as the spread across the x-axis seems to be more balanced and evenly split in our residual plots for our first frequentist models than our second. Additionally, the $R^2$ values of our first frequentist model (0.075, 0.116, and 0.153) are better than the $R^2$ value of 0.039 for our second frequentist model. Between these two details, we believe that considering each neuron separately and predicting for each one individually is better than trying to compile the predictions into a single model. This not only confirms our earlier hypothesis that Model 1 is the stronger model but also makes logical sense as each neuron connects to the overall neural network differently and so they will each be affected uniquely by every predictor neuron. Additionally, we can see in Figure 8 that the coefficients between the concatenated model and the separated models tend to differ, which makes sense considering what has been discovered about the $R^2$ values and the residual plots. The concatenated coefficients tend to be different from all of the separate models and worse at predicting, overall.
 
 ```{r figs7, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8, fig.cap="\\label{fig:figs7}Residual Plots for Frequentist Models"}
 par(mfrow=c(2, 2))
@@ -338,119 +450,7 @@ hist(beta3dif,
 par(mfrow=c(1,1))
 ```
 
-Model 1:
-
-\begin{center}
-    \textbf{Model 1, Neuron 234} 
-\end{center}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0057000007 \\
-        Neuron\_1  & -0.0007161198 \\
-        Neuron\_2  &  0.0277343380 \\
-        Neuron\_3  &  0.0016065925 \\
-        Neuron\_4  &  0.0027178334 \\
-        Neuron\_5  & -0.0057370064 \\
-        Neuron\_6  &  0.0012776469 \\
-        Neuron\_7  & -0.0024053779 \\
-        Neuron\_8  &  0.0059968300 \\
-        Neuron\_9  &  0.0044756078 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 1, Neuron 234}
-    \label{tab:model3_coefficients}
-\end{table}
-
-\begin{center}
-    \textbf{Model 1, Neuron 168} % Title centered above the table
-\end{center}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0031776832 \\
-        Neuron\_1  &  0.0393005011 \\
-        Neuron\_2  & -0.0094288755 \\
-        Neuron\_3  &  0.0087287020 \\
-        Neuron\_4  & -0.0084431688 \\
-        Neuron\_5  & -0.0062233763 \\
-        Neuron\_6  &  0.0077952762 \\
-        Neuron\_7  & -0.0004962535 \\
-        Neuron\_8  & -0.0051638573 \\
-        Neuron\_9  & -0.0047117552 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 1, Neuron 168}
-    \label{tab:model4_coefficients}
-\end{table}
-
-\begin{center}
-    \textbf{Model 1, Neuron 281} 
-\end{center}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0026048919 \\
-        Neuron\_1  &  0.0353755239 \\
-        Neuron\_2  &  0.0107636538 \\
-        Neuron\_3  & -0.0014463192 \\
-        Neuron\_4  & -0.0005627236 \\
-        Neuron\_5  & -0.0054332369 \\
-        Neuron\_6  &  0.0055248920 \\
-        Neuron\_7  &  0.0012933504 \\
-        Neuron\_8  & -0.0011811706 \\
-        Neuron\_9  &  0.0022120294 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 1, Neuron 281}
-\end{table}
-
-
-Model 2:
-
-\begin{center}
-    \textbf{Model 2} % Title centered above the table
-\end{center}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0038275253 \\
-        Neuron\_1  &  0.0246533017 \\
-        Neuron\_2  &  0.0096897054 \\
-        Neuron\_3  &  0.0029629918 \\
-        Neuron\_4  & -0.0020960197 \\
-        Neuron\_5  & -0.0057978732 \\
-        Neuron\_6  &  0.0048659383 \\
-        Neuron\_7  & -0.0005360937 \\
-        Neuron\_8  & -0.0001160659 \\
-        Neuron\_9  &  0.0006586274 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 2}
-    \label{tab:model2_coefficients}
-\end{table}
-
-
-## 3.3 Comparing the Frequentist Models
-
-After fitting the models, the residual plots shown in Figure 6 were created to compare the strength of our frequentist models. We also calculated the $R^2$ values for all of the models for strength comparison. None of the residual plots appear to be traditionally desirable, with all of them lacking a random spread across the x-axis and instead making similar patterns to one another. However, this does not mean the models are all bad or useless. Due to lack of certainty when making predictions in the neuroscience field, what might appear as a bad or weak model in a different statistical context is considered an acceptable model in a neuroscience context. The residual plots for our first frequentist model (the residual plots belonging to Neurons 234, 168, and 281) are slightly more desirable than the residual plot for our second frequentist model (the residual plot belonging to the Concatenated Model) as the spread across the x-axis seems to be more balanced and evenly split in our residual plots for our first frequentist models than our second. Additionally, the $R^2$ values of our first frequentist model (0.075, 0.116, and 0.153) are better than the $R^2$ value of 0.039 for our second frequentist model. Between these two details, we believe that considering each neuron separately and predicting for each one individually is better than trying to compile the predictions into a single model. This not only confirms our earlier hypothesis that Model 1 is the stronger model but also makes logical sense as each neuron connects to the overall neural network differently and so they will each be affected uniquely by every predictor neuron. Additionally, we can see in Figure 8 that the coefficients between the concatenated model and the separated models tend to differ, which makes sense considering what has been discovered about the $R^2$ values and the residual plots. The concatenated coefficients tend to be different from all of the separate models and worse at predicting, overall.
-
+\newpage
 # 4. Bayesian Analysis
 
 Propose the Bayesian analysis you will work on during the rest of the quarter in this session.
