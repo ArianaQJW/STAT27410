@@ -11,6 +11,8 @@ output:
   word_document: default
   geometry: margin=0.75in
 fig_crop: no
+header-includes:
+   - \usepackage{booktabs}
 ---
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
@@ -27,14 +29,14 @@ calcium_reach_times = read_csv("calcium_reach_times.csv")
 
 # 1. Introduction
 
-Complex motor skills, which are precise and non-stereotypical movements, are essential for survival. For example, squirrels need to jump from branches to branches and eagles need to catch small-sized prey. These movements are difficult and require effort. We are interested in understanding brain activity while learning complex motor skills. Specifically, we are interested in the neural dynamics and network structure of the primary motor (M1) cortex, which can be seen as a recurrent neural network, receiving upstream signals on motor planning and body position, and outputting commands to downstream areas, such as the spinal cord and brainstem, to control movement.
+Complex motor skills, which are precise and non-stereotypical movements, are essential for survival. For example, squirrels need to jump from branch to branch, and eagles need to catch small prey. Understanding brain activity during complex motor skills is essential in motor control and motor learning. Towards this goal, the MacLean Lab, a neuroscience lab at The University of Chicago, performed neuro-recording on the mouse primary motor (M1) cortex while the mouse was engaged in a reach-to-grasp movement. The M1 cortex can be seen as a recurrent neural network, receiving upstream signals on motor planning and body position, and outputting commands to downstream areas, such as the spinal cord and brainstem. While networks are very complex objects of study, we chose a narrow objective for this project: given a neuron in the network, we want to predict its activity using the activity of other neurons. We hope this can inspire future research on the dynamics and structure of neural networks.
 
 ## 1.1 Dataset
 
-In this paper, we will study the neural dynamics of motor learning using the data from the MacLean lab, a computational neuroscience lab at UChicago. In each experiment session, the mouse reached for a small grain of rice, while its brain was attached to a microscope. As a result, we have data regarding the behavior and the neural dynamics of the M1 cortex:
+We use the data from the MacLean lab. During the experiment, the mouse reached for a rice grain in a head-fixed position. Before the experiment, the mouse underwent surgery so that its brain is attached to a microscope and that neurons would increase in fluorescence value when their activity increased. After the initial imaging, the MacLean Lab performed preprocessing to infer the estimated spike counts from the fluorescence data. 
 
 \begin{itemize}
-\item Time series data of neural spikes: This is a time series of the probability of a spike at each time bin, inferred from the fluorescence values recorded by the microscope. Each time bin is 30 ms. We have 315 neurons and 148660 time bins.
+\item Time series data of neural spikes: This is a time series of the inferred number of spikes at each time bin, inferred from the fluorescence values recorded by the microscope. Each time bin is 30 ms. We have 315 neurons and 148468 time bins.
 
 \item Inhibitory or excitatory neurons: This is an array that stores whether a neuron is inhibitory or excitatory, namely whether it increases or decreases the level of activity in downstream neurons.
 
@@ -55,17 +57,19 @@ The dataset chosen is not without complications, however, some of these complica
 
 ## 1.3 Scientific Question
 
-We are interested in inferring the underlying network structure given the observed neural dynamics. Traditionally, this question is approached using the functional connectivity framework, where nodes correspond to neurons and edges weights correspond to activity correlation, measured by Pearson correlation. We are interested in exploring frequentist and Bayesian approaches to study the underlying network structure that gives rise to the observed dynamics. In the Bayesian framework, previous research has estimated functional connectivity using the hidden Markov model on fMRI data across varying behavioral states (Warnick et al., 2018).
+For a target neuron, the goal is to predict its activity at each time bin using the activity of other neurons. In other words, the response variable is the activity of the target neuron. The predictor variables are the activity of the other neurons. The selected target neurons are Neuron 234, 168, and 281. The choice of selecting these three neurons comes from exploratory data analysis which showed that these three neurons had the potential to create relatively strong predictive models, making them neurons of interest and the three that we believe will provide the most interesting exploration and analysis of our data.
 
-**We are interested in inferring the underlying network structure given the observed neural dynamics. More specifically we would like to focus on analyzing the neuron dynamics of a cluster of selected neurons, determining how the neurons in question depend on the other neurons in the dataset and the correlation and connections present between the clustered neurons. The cluster of selected neurons include Neuron 111 as well as a few of the closest neurons to Neuron 111. The choice of selecting a cluster around Neuron 111 comes from exploratory data analysis which showed that Neuron 111 had relatively high correlations with a variety of different neurons, making it a neuron of interest and one that we believe will provide the most interesting exploration and analysis of our data. We are interested in using both frequentist and Bayesian approaches to study the underlying network structure that gives rise to the observed dynamics. For a frequentist approach, we plan on creating multiple regression models in order to determine both the neuron dynamics and connections that the clustered neurons have with the other neurons in the dataset but also searching for correlations and connections within the clustered neurons themselves. The Bayesian approach will involve creating Bayesian hierarchical models to further analyze the neuron dynamics and underlying network structure.**
+It is known that the activity of a target neuron can be explained by the activity of other neurons and their recurrent connections through linear models (Kotekal et al., 2020). This inspired us to construct linear regression models to capture the interaction between the predicted and predictor variables. In the frequentist analysis section, we hypothesize that different neurons integrate the activities of other neurons differently. This is a plausible hypothesis because the different neurons likely form different connections with other neurons, depending on factors such as their proximity. We seek to validate this hypothesis by comparing linear models that capture different integrations and linear models that require the same integration. This hypothesis, if true, would motivate hierarchical models in our Bayesian analysis. 
 
-Another question of interest is using dynamics of other neurons to predict the dynamics of a given neuron. It is known that recurrent interactions can explain variance in single trial responses using linear models (Kotekal et al., 2020). Therefore, we are interested in utilizing frequentist and Bayesian methods to predict neuron activity.
+Due to the high computational cost, we cannot perform the complete frequentist and Bayesian analysis on all 295 excitatory neurons. Instead, we pick three neurons. Because the experiment only records an incomplete network, the selection criterion is based on the information available regarding a neuron’s upstream neurons. (See further explanation in the frequentist analysis section.)
 
 # 2. Exploratory Data Analysis
 
-## 2.1 Neuron Spikes:
+For the exploratory analysis, we are interested in visualizing the neuron activity and co-activity, neuron spatial distribution, type (inhibitory or excitatory), and mouse behavior. 
 
-```{r figs, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs}"}
+## 2.1 Neuron Activity:
+
+```{r figs, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs}Time Series Plot of Neuron 111's Activity"}
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -73,12 +77,15 @@ colnames(spks_t) = neurons
 time_points = seq(0, by = 30 / 1000, length.out = 148468)
 spks_t$time = time_points
 
-ggplot(spks_t, aes(x = time, y = Neuron_111)) +
+ggplot(spks_t, aes(x = time, y = Neuron_234)) +
   geom_line(size = 1) +
-  labs(title = "Time Series", x = "Time", y = "Neuron 111") +
+  labs(title = "Time Series", x = "Time", y = "Inferred Number of Spikes") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
 ```
+
+As an example, we visualize the spikes time series of one of our target neurons, neuron 234 (Fig. 1). At each time bin, the y-axis displays the inferred number of spikes. A common question is why the quantity is continuous rather than discrete. Recall that spikes are not directly observable from the experiment. Instead, they are inferred from the observed fluorescence values of the neurons. Hence, the inferred number of spikes results from the spikes inference algorithm. We recommend interpreting the y-axis as an artificial measure of neuron activity level, and we refer to this quantity as inferred spikes. For more details, read the frequently asked questions section of the spike inference algorithm: https://github.com/HelmchenLabSoftware/Cascade. 
+
 
 ## 2.2 Neuron Types:
 
@@ -92,7 +99,7 @@ ggplot(redlabels, aes(x = neuron_type)) +
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
-There are many more excitatory neurons than inhibitory neurons.
+Fig. 2 displays the counts of inhibitory and excitatory neurons in a barplot. Inhibitory and excitatory neurons are two types neurons, classified based on how they interact with downstream neurons. Each neuron has a membrane potential, namely the electric potential difference between the inside and outside of the cell. When a neuron's membrane potential reaches a certain threshold, it generates a spike, namely a sudden increase in action potential. This spike transmit signals to its downstream neurons and changes the action potential of the downstream neurons. Based on whether a neuron increases or decreases the action potential of its downstream neuron, the neuron is classified as excitatory or inhibitory respectively. The bar plot shows that there are many more excitatory neurons than inhibitory neurons. 
 
 ## 2.3 Correlation between Neuron Spikes:
 
@@ -112,7 +119,7 @@ pheatmap(cor_matrix,
 )
 ```
 
-The Pearson correlations between neurons are relatively low across the board. Most values are positive. Negative values are small in magnitude. If we were to use the correlation matrix as the adjacency matrix for the network, we need to threshold at the 75th percentile, resulting in a sparse matrix with only positive values.
+In addition to single-neuron activity, we are interested in the collective dynamics of neurons. Here, we examine the co-activity between every pair of neurons, measured by Pearson correlation. The resulting matrix is a symmetric 315 by 315 matrix, where the ij-th entry is the Pearson correlation between the inferred spikes of the ith neuron and the jth neuron. Fig. 3 visualizes the Pearson correlation matrix using a heatmap. The heatmap shows that the correlation between neuron activity is low across the board. In addition, most correlations are positive, and negative correlations are small in magnitude. 
 
 ## 2.4 Neuron Positions:
 
@@ -127,31 +134,88 @@ ggplot(color_pos, aes(x = x, y = y, color = as.factor(neuron_type))) +
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
-In the field of view, the observation of neurons is much denser in some areas than others. In addition, the inhibitory neurons are dispersed throughout the field of view.
+Fig 4. displays the spatial positions of the 315 excitatory and inhibitory neurons. x, y are the coordinates of the neurons in the image. Observe that some areas have more recorded neurons than others. In addition, because of the biophysics constraints, the neurons in proximity are more likely to be connected. Therefore, we expect the neurons in proximity to be more correlated. 
 
 ## 2.5 Reach Times:
 
-```{r figs5, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs5}Distribution of Length of Reach Times"}
+```{r figs5, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs5}Distribution of Bout Lengths"}
 colnames(calcium_reach_times) = c("start", "end")
 calcium_reach_times$reach_time = calcium_reach_times$end - calcium_reach_times$start
 ggplot(calcium_reach_times, aes(x=reach_time)) +
   geom_histogram(binwidth=20) +
   theme_minimal() +
-  labs(title= "Distribution of Reach Times", x = "Reach Time", y = "Count") +
+  labs(title= "Distribution of Bout Lengths", x = "Bout Lengths", y = "Count") +
   theme(plot.title = element_text(hjust = 0.5))
 ```
 
-The distribution of the length of bouts of reaches is highly skewed. Most bouts are very short, but there are a few long bouts of reaches.
+In the experiment, the mouse performs a reach-to-grasp task. Specifically, the mouse reaches for a tiny grain of rice. Given the task's difficulty, the mouse often makes several continuous attempts between rests. We call a set of continuous attempts “a bout of reaches”. Fig. 5 displays a histogram of the lengths of the bouts, given by subtracting the start time of the bout from the end time of the bout. We see that most bouts are short, but there are a few long bouts of reaches.
 
 # 3. Frequentist Analysis
 
 ## 3.1 Proposed Frequentist Model(s)
 
-In this section, formulate the frequentist model(s) you are going to use to analyze your dataset. Be sure to first define the notations involved in the model(s).
+Our project aims to predict the inferred spikes of a target neuron using the activity of the other neurons. In the frequentist paradigm, our model of choice is linear regression. Linear models are a well-established method in computational neuroscience literature. Specifically, Kotekal et al. 2020 showed that recurrent interactions (i.e., activities of other neurons) can explain target neuron activity through a linear model.
+
+In addition to past literature, our choice of linear regression holds several other advantages. Because of its relative simplicity, it has a closed-form solution and is computationally efficient. Given our model's large number of predictors, computational complexity is an important consideration. Another advantage of simplicity is the interpretability of linear regression. We can understand how the predictors contribute to the target neuron activity and interpret the parameters as the strength of interaction between the two neurons. Given linear models' computational efficiency and interpretability, it is our model of choice. 
+
+Using linear regression, we predict the inferred spikes of a target neuron using the inferred spikes of other neurons. To measure the performance of linear regression, we use the R^2 value, which is the percent of variance explained. In neuroscience, an R^2 around 0.1 is considered a good model. 
+
+Due to the computational cost of performing the complete frequentist and Bayesian analysis for all 295 excitatory neurons, we pick 3 neurons to analyze for this project. The criterion for neuron choice is as follows: Because our data represents an incomplete network, we want to pick neurons whose upstream neurons are observable (i.e., included in the data). Otherwise, we do not have information on the predictors, and the subsequent analysis wouldn’t be meaningful. To determine the neurons with observable upstream neurons, we first perform a linear regression on all 295 neurons. We take the 3 neurons with the highest R^2 value.  Fig. 6 displays a histogram of the R^2 of all the neurons. 
+
+```{r figs6, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs6}Histogram of R^2 Values for Regression Models"}
+load("r_squared_list.RData")
+r_squared_vector <- unlist(r_squared_list)
+
+hist(r_squared_vector, 
+     main = "Histogram of R-squared values", 
+     xlab = "R-squared", 
+     col = "skyblue", 
+     border = "black")
+```
+
+Using this method, we pick neurons 234, 168, and 281. 
+
+For these three neurons, we consider two models for comparison. 
+
+For these three neurons, we consider two models for comparison.
+
+Model 1: 
+
+$$ y_{\text{234}} = \alpha_{\text{234}} + X \beta_{\text{234}} $$
+
+$$ y_{\text{168}} = \alpha_{\text{168}} + X \beta_{\text{168}} $$
+
+$$ y_{\text{281}} = \alpha_{\text{281}} + X \beta_{\text{281}} $$
+
+
+Model 2: 
+
+$$ \tilde{y} = \tilde{\alpha}*\mathbb{1} + \tilde{X} \tilde{\beta}$$
+
+Where: 
+
+Model 1: 
+
+\begin{itemize}
+\item$y_n$ is the inferred spikes of neuron n, an array of dimension (number of time bins) by 1. 
+
+\item$X$ stores the time series of all neurons other than neurons 234, 168, and 281. It is a matrix of dimension (number of time bins) by (number of other neurons)
+
+\item$\alpha_n$ and $\beta_n$ are parameters to be fitted. 
+\end{itemize}
+
+Model 2:
+\begin{itemize}
+\item$ \tilde{y}$ is the time series of neurons 234, 168, and 281, concatenated vertically. It is an array of dimension ( $3 \times \text{number of time bins}$) by 1
+
+\item$ \tilde{X}$ is the time series of all neurons other than neurons 234, 168, and 281, concatenated three times vertically. It is a matrix of dimension ( $3 \times \text{number of time bins}$) by (number of other neurons).
+
+\item$\tilde{\alpha}$ and $\tilde{\beta}$ are parameters to be fitted. 
+\end{itemize}
+
+We chose these two models to compare because we want to understand if neurons integrate the activities from other neurons similarly or differently. In model 1, the coefficient for the predictors could be different across neurons 234, 168, and 281, representing different integrations of the activity of other neurons. On the other hand, model 2 requires the coefficient and integration to be the same. Based on neuroscience knowledge, we hypothesize that model 1 will have better performance, as different neurons have different connectivity with other neurons and integrate signals differently. 
 
 ## 3.2 Fitting the Frequentist Model(s)
-
-In this section, \* discuss how you fit the proposed frequentist model(s). \* report the results. \* interpret the results in the context.
 
 The two frequentist models were fit by compiling the predictor neurons into matrices and solving for Beta using the following equation:
 
@@ -166,74 +230,226 @@ spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
 
-response_neurons = c("Neuron_111", "Neuron_222", "Neuron_49")
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
 predictor_neurons = setdiff(neurons, response_neurons)
+X = as.matrix(spks_t[, predictor_neurons])
+X = cbind(Intercept = 1, X)
 ```
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-X = as.matrix(spks_t[, predictor_neurons])
-X = cbind(Intercept = 1, X)
-
-Y1 = spks_t[, "Neuron_111"]
+Y1 = spks_t[, "Neuron_234"]
 
 beta1 = solve(t(X) %*% X) %*% t(X) %*% Y1
 Y1_pred = X %*% beta1
 residuals1 = Y1 - Y1_pred
 
-Y2 = spks_t[, "Neuron_222"]
+RSS1 = sum((Y1 - Y1_pred)^2)
+TSS1 = sum((Y1 - mean(Y1))^2)
+R_squared1 = 1 - RSS1 / TSS1
+
+Y2 = spks_t[, "Neuron_168"]
 
 beta2 = solve(t(X) %*% X) %*% t(X) %*% Y2
 Y2_pred = X %*% beta2
 residuals2 = Y2 - Y2_pred
 
-Y3 = spks_t[, "Neuron_49"]
+RSS2 = sum((Y2 - Y2_pred)^2)
+TSS2 = sum((Y2 - mean(Y2))^2)
+R_squared2 = 1 - RSS2 / TSS2
+
+Y3 = spks_t[, "Neuron_281"]
 
 beta3 = solve(t(X) %*% X) %*% t(X) %*% Y3
 Y3_pred = X %*% beta3
 residuals3 = Y3 - Y3_pred
 
-Y = as.matrix(spks_t[, c("Neuron_111", "Neuron_222", "Neuron_49")])
+RSS3 = sum((Y3 - Y3_pred)^2)
+TSS3 = sum((Y3 - mean(Y3))^2)
+R_squared3 = 1 - RSS3 / TSS3
 
-beta = solve(t(X) %*% X) %*% t(X) %*% Y
-Y_pred = X %*% beta
+Y = c(Y1, Y2, Y3)
+X3 = rbind(X, X, X)
+
+beta = solve(t(X3) %*% X3) %*% t(X3) %*% Y
+Y_pred = X3 %*% beta
 residuals = Y - Y_pred
+
+RSS = sum((Y - Y_pred)^2)
+TSS = sum((Y - mean(Y))^2)
+R_squared = 1 - RSS / TSS
 ```
 
-```{r figs6, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs6}Residual Plots for Frequentist Models"}
-par(mfrow=c(1, 4), mar=c(5, 4, 4, 2) + 0.1)
+```{r figs7, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8, fig.cap="\\label{fig:figs7}Residual Plots for Frequentist Models"}
+par(mfrow=c(2, 2))
 
 plot(Y1_pred, residuals1,
-     xlab="Fitted Values (Model 1)",
-     ylab="Residuals (Model 1)",
-     main="Residuals Plot (Model 1)",
+     xlab="Fitted Values (Neuron 234)",
+     ylab="Residuals (Neuron 234)",
+     main="Residuals Plot (Neuron 234)",
      col="yellow")
 abline(h=0, col="red", lwd=2)
 
 plot(Y2_pred, residuals2,
-     xlab="Fitted Values (Model 2)",
-     ylab="Residuals (Model 2)",
-     main="Residuals Plot (Model 2)",
+     xlab="Fitted Values (Neuron 168)",
+     ylab="Residuals (Neuron 168)",
+     main="Residuals Plot (Neuron 168)",
      col="blue")
 abline(h=0, col="red", lwd=2)
 
 plot(Y3_pred, residuals3,
-     xlab="Fitted Values (Model 3)",
-     ylab="Residuals (Model 3)",
-     main="Residuals Plot (Model 3)",
+     xlab="Fitted Values (Neuron 281)",
+     ylab="Residuals (Neuron 281)",
+     main="Residuals Plot (Neuron 281)",
      col="green")
 abline(h=0, col="red", lwd=2)
 
 plot(Y_pred, residuals,
-     xlab="Fitted Values (Model 4)",
-     ylab="Residuals (Model 4)",
-     main="Residuals Plot (Model 4)",
+     xlab="Fitted Values (Concatenated Model)",
+     ylab="Residuals (Concatenated Model)",
+     main="Residuals Plot (Concatenated Model)",
      col="purple")
 abline(h=0, col="red", lwd=2)
 
 par(mfrow=c(1,1))
 ```
 
-After fitting the models, the residual plots shown in the Figure above were created to compare the strength of our frequentist models.
+```{r figs8, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.cap="\\label{fig:figs8}Histogram of Difference in Coefficients between Frequentist Models"}
+beta1dif = beta - beta1
+beta2dif = beta - beta2
+beta3dif = beta - beta3
+par(mfrow=c(3,1))
+hist(beta1dif, 
+     main = "Difference between Neuron 234 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta2dif, 
+     main = "Difference between Neuron 168 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta3dif, 
+     main = "Difference between Neuron 281 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+par(mfrow=c(1,1))
+```
+
+Model 1:
+
+\begin{center}
+    \textbf{Model 1, Neuron 234} 
+\end{center}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0057000007 \\
+        Neuron\_1  & -0.0007161198 \\
+        Neuron\_2  &  0.0277343380 \\
+        Neuron\_3  &  0.0016065925 \\
+        Neuron\_4  &  0.0027178334 \\
+        Neuron\_5  & -0.0057370064 \\
+        Neuron\_6  &  0.0012776469 \\
+        Neuron\_7  & -0.0024053779 \\
+        Neuron\_8  &  0.0059968300 \\
+        Neuron\_9  &  0.0044756078 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 1, Neuron 234}
+    \label{tab:model3_coefficients}
+\end{table}
+
+\begin{center}
+    \textbf{Model 1, Neuron 168} % Title centered above the table
+\end{center}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0031776832 \\
+        Neuron\_1  &  0.0393005011 \\
+        Neuron\_2  & -0.0094288755 \\
+        Neuron\_3  &  0.0087287020 \\
+        Neuron\_4  & -0.0084431688 \\
+        Neuron\_5  & -0.0062233763 \\
+        Neuron\_6  &  0.0077952762 \\
+        Neuron\_7  & -0.0004962535 \\
+        Neuron\_8  & -0.0051638573 \\
+        Neuron\_9  & -0.0047117552 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 1, Neuron 168}
+    \label{tab:model4_coefficients}
+\end{table}
+
+\begin{center}
+    \textbf{Model 1, Neuron 281} 
+\end{center}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0026048919 \\
+        Neuron\_1  &  0.0353755239 \\
+        Neuron\_2  &  0.0107636538 \\
+        Neuron\_3  & -0.0014463192 \\
+        Neuron\_4  & -0.0005627236 \\
+        Neuron\_5  & -0.0054332369 \\
+        Neuron\_6  &  0.0055248920 \\
+        Neuron\_7  &  0.0012933504 \\
+        Neuron\_8  & -0.0011811706 \\
+        Neuron\_9  &  0.0022120294 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 1, Neuron 281}
+\end{table}
+
+
+Model 2:
+
+\begin{center}
+    \textbf{Model 2} % Title centered above the table
+\end{center}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r}
+        \toprule
+        Predictor & Coefficient \\
+        \midrule
+        Intercept  &  0.0038275253 \\
+        Neuron\_1  &  0.0246533017 \\
+        Neuron\_2  &  0.0096897054 \\
+        Neuron\_3  &  0.0029629918 \\
+        Neuron\_4  & -0.0020960197 \\
+        Neuron\_5  & -0.0057978732 \\
+        Neuron\_6  &  0.0048659383 \\
+        Neuron\_7  & -0.0005360937 \\
+        Neuron\_8  & -0.0001160659 \\
+        Neuron\_9  &  0.0006586274 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Predictor coefficients for Model 2}
+    \label{tab:model2_coefficients}
+\end{table}
+
+
+## 3.3 Comparing the Frequentist Models
+
+After fitting the models, the residual plots shown in Figure 6 were created to compare the strength of our frequentist models. We also calculated the $R^2$ values for all of the models for strength comparison. None of the residual plots appear to be traditionally desirable, with all of them lacking a random spread across the x-axis and instead making similar patterns to one another. However, this does not mean the models are all bad or useless. Due to lack of certainty when making predictions in the neuroscience field, what might appear as a bad or weak model in a different statistical context is considered an acceptable model in a neuroscience context. The residual plots for our first frequentist model (the residual plots belonging to Neurons 234, 168, and 281) are slightly more desirable than the residual plot for our second frequentist model (the residual plot belonging to the Concatenated Model) as the spread across the x-axis seems to be more balanced and evenly split in our residual plots for our first frequentist models than our second. Additionally, the $R^2$ values of our first frequentist model (0.075, 0.116, and 0.153) are better than the $R^2$ value of 0.039 for our second frequentist model. Between these two details, we believe that considering each neuron separately and predicting for each one individually is better than trying to compile the predictions into a single model. This not only confirms our earlier hypothesis that Model 1 is the stronger model but also makes logical sense as each neuron connects to the overall neural network differently and so they will each be affected uniquely by every predictor neuron. Additionally, we can see in Figure 8 that the coefficients between the concatenated model and the separated models tend to differ, which makes sense considering what has been discovered about the $R^2$ values and the residual plots. The concatenated coefficients tend to be different from all of the separate models and worse at predicting, overall.
 
 # 4. Bayesian Analysis
 
@@ -271,15 +487,12 @@ Please also discuss briefly the contributions of your teammate(s), as well as th
 
 # References
 
-::: {#refs}
-:::
-
 # Appendix
 
 R code for Exploratory Data Analysis graphs:
 
 ```{r, eval=FALSE, message=FALSE, warning=FALSE}
-#Neuron 111 Time Series Plot
+#Neuron 234 Time Series Plot
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -287,9 +500,9 @@ colnames(spks_t) = neurons
 time_points = seq(0, by = 30 / 1000, length.out = 148468)
 spks_t$time = time_points
 
-ggplot(spks_t, aes(x = time, y = Neuron_111)) +
+ggplot(spks_t, aes(x = time, y = Neuron_234)) +
   geom_line(size = 1) +
-  labs(title = "Time Series", x = "Time", y = "Neuron 111") +
+  labs(title = "Time Series", x = "Time", y = "Neuron 234") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
 ```
@@ -344,3 +557,129 @@ ggplot(calcium_reach_times, aes(x=reach_time)) +
   labs(title= "Distribution of Reach Times", x = "Reach Time", y = "Count") +
   theme(plot.title = element_text(hjust = 0.5))
 ```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Histogram of R^2 Values
+load("r_squared_list.RData")
+r_squared_vector <- unlist(r_squared_list)
+
+hist(r_squared_vector, 
+     main = "Histogram of R-squared values", 
+     xlab = "R-squared", 
+     col = "skyblue", 
+     border = "black")
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Fitting Frequentist Models and Calculating their R^2
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+X = as.matrix(spks_t[, predictor_neurons])
+X = cbind(Intercept = 1, X)
+
+Y1 = spks_t[, "Neuron_234"]
+
+beta1 = solve(t(X) %*% X) %*% t(X) %*% Y1
+Y1_pred = X %*% beta1
+residuals1 = Y1 - Y1_pred
+
+RSS1 = sum((Y1 - Y1_pred)^2)
+TSS1 = sum((Y1 - mean(Y1))^2)
+R_squared1 = 1 - RSS1 / TSS1
+
+Y2 = spks_t[, "Neuron_168"]
+
+beta2 = solve(t(X) %*% X) %*% t(X) %*% Y2
+Y2_pred = X %*% beta2
+residuals2 = Y2 - Y2_pred
+
+RSS2 = sum((Y2 - Y2_pred)^2)
+TSS2 = sum((Y2 - mean(Y2))^2)
+R_squared2 = 1 - RSS2 / TSS2
+
+Y3 = spks_t[, "Neuron_281"]
+
+beta3 = solve(t(X) %*% X) %*% t(X) %*% Y3
+Y3_pred = X %*% beta3
+residuals3 = Y3 - Y3_pred
+
+RSS3 = sum((Y3 - Y3_pred)^2)
+TSS3 = sum((Y3 - mean(Y3))^2)
+R_squared3 = 1 - RSS3 / TSS3
+
+Y = as.matrix(spks_t[, c("Neuron_234", "Neuron_168", "Neuron_281")])
+
+beta = solve(t(X) %*% X) %*% t(X) %*% Y
+Y_pred = X %*% beta
+residuals = Y - Y_pred
+
+RSS = sum((Y - Y_pred)^2)
+TSS = sum((Y - mean(Y))^2)
+R_squared = 1 - RSS / TSS
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Residual Plots for Frequentist Models
+par(mfrow=c(2, 2))
+
+plot(Y1_pred, residuals1,
+     xlab="Fitted Values (Model 1)",
+     ylab="Residuals (Model 1)",
+     main="Residuals Plot (Model 1)",
+     col="yellow")
+abline(h=0, col="red", lwd=2)
+
+plot(Y2_pred, residuals2,
+     xlab="Fitted Values (Model 2)",
+     ylab="Residuals (Model 2)",
+     main="Residuals Plot (Model 2)",
+     col="blue")
+abline(h=0, col="red", lwd=2)
+
+plot(Y3_pred, residuals3,
+     xlab="Fitted Values (Model 3)",
+     ylab="Residuals (Model 3)",
+     main="Residuals Plot (Model 3)",
+     col="green")
+abline(h=0, col="red", lwd=2)
+
+plot(Y_pred, residuals,
+     xlab="Fitted Values (Model 4)",
+     ylab="Residuals (Model 4)",
+     main="Residuals Plot (Model 4)",
+     col="purple")
+abline(h=0, col="red", lwd=2)
+
+par(mfrow=c(1,1))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Histograms showing difference between coefficients
+beta1dif = beta - beta1
+beta2dif = beta - beta2
+beta3dif = beta - beta3
+par(mfrow=c(3,1))
+hist(beta1dif, 
+     main = "Difference between Neuron 234 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta2dif, 
+     main = "Difference between Neuron 168 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta3dif, 
+     main = "Difference between Neuron 281 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+par(mfrow=c(1,1))
+```
+
