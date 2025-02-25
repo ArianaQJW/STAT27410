@@ -21,6 +21,7 @@ library(ggplot2)
 library(knitr)
 library(dplyr)
 library(lme4)
+library(brms)
 knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
 options(scipen=6, digits=6)
 load("spks_subset.RData")
@@ -474,27 +475,34 @@ Propose how you will perform sensitivity analysis of the Bayesian models, i.e., 
 Propose how you will check the MCMC convergence.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-library(brms)
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+
+neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+
+X1_df = as.data.frame(X_combined)
+X1_df$Y = Y_combined
+X1_df$neuron = neuron_labels
+
 X1_df = X1_df %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
 
 fixed_effects <- setdiff(names(X1_df), c("Y4", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
-
-priors <- c(
-  prior(normal(0, 5), class = "sd")
-)
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "))
 
 brmodel <- brm(formula = formula_str, 
-             data = X1_df, 
-             family = Gamma(),
-             prior = priors,
-             iter = 4000, warmup = 1000, chains = 4,
-             control = list(adapt_delta = 0.95))
+             data = X1_df[1:2000,], 
+             warmup = 1000, iter = 3000, 
+             cores = 4, chains = 2, seed = 123)
 ```
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-summary(brmodel)$Rhat
+summary(brmodel)
 ```
 
 ## 4.3 Prediction
