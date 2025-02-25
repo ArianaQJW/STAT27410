@@ -493,7 +493,7 @@ X1_df = X1_df %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
 
 fixed_effects <- setdiff(names(X1_df), c("Y4", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
 
 brmodel <- brm(formula = formula_str, 
              data = X1_df[1:2000,], 
