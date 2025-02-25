@@ -475,6 +475,10 @@ Propose how you will perform sensitivity analysis of the Bayesian models, i.e., 
 Propose how you will check the MCMC convergence.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
 spks_t = spks_t %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
 
