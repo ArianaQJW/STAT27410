@@ -13,6 +13,7 @@ output:
 fig_crop: no
 header-includes:
    - \usepackage{booktabs}
+   - \usepackage{amssymb}
 ---
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
@@ -26,6 +27,7 @@ knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
 options(scipen=6, digits=6)
 load("spks_subset.RData")
 load("models.RData")
+load("brmodel.RData")
 redlabels = read_csv("redlabels.csv")
 cell_pos = read_csv("cell_pos.csv")
 calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
@@ -183,37 +185,59 @@ For these three neurons, we consider two models for comparison.
 
 Model 1: 
 
-$$ Y_{it} = \alpha_{it} + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta_{ij} + \varepsilon_{it} $$
+$$ Y_{it} = \alpha_{i} + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta_{ij} + \varepsilon_{it} $$
 Where: 
 
 \begin{itemize}
 \item$Y_{it}$ is the inferred spikes of neuron i at time t. 
 
-\item$X$ stores the time series of all neurons other than neurons 234, 168, and 281. It is a matrix of dimension (number of time bins) by (number of other neurons)
+\item$X_{jt}$ is the inferred spikes of neuron j at time t. 
 
-\item$\alpha_n$ and $\beta_n$ are parameters to be fitted. 
+\item$\alpha_{i}$ and $\beta_{ij}$ are parameters to be fitted. 
 
-\item$\varepsilon_n$ is the error term for the model. 
+\item$\varepsilon_{it}$ is the error term for the model, $\varepsilon_{it} \sim \mathcal{N}(0, \sigma_{i}^2)$. 
 \end{itemize}
 
 Model 2: 
 
-$$ \tilde{Y} =\mathbf{1} \tilde{\alpha} + \tilde{X} \tilde{\beta} + \tilde{\varepsilon}$$
+$$ Y =\mathbb{I} \alpha + X \beta + \varepsilon$$
 
 Where:
 
-Model 2:
 \begin{itemize}
-\item$ \tilde{Y}$ is the time series of neurons 234, 168, and 281, concatenated vertically. It is an array of dimension ( $3 \times \text{number of time bins}$) by 1
+\item$Y$ is the time series of neurons 234, 168, and 281, concatenated vertically. It is an array of dimension ( $3 \times \text{number of time bins}$) by 1
 
-\item$ \tilde{X}$ is the time series of all neurons other than neurons 234, 168, and 281, concatenated three times vertically. It is a matrix of dimension ( $3 \times \text{number of time bins}$) by (number of other neurons).
+\item$X_t$ is the time series of all neurons other than neurons 234, 168, and 281, concatenated three times vertically. It is a matrix of dimension ( $3 \times \text{number of time bins}$) by (number of other neurons).
 
-\item$\tilde{\alpha}$ and $\tilde{\beta}$ are parameters to be fitted. 
+\item$\alpha$ and $\tilde{\beta}$ are parameters to be fitted. 
 
-\item$\tilde{\varepsilon}$ is the error term for the model. 
+\item$\mathbb{I}$ represents the matrix: 
+
+\[
+\mathbb{I} =
+\begin{bmatrix}
+1 & 0 & 0 \\
+1 & 0 & 0 \\
+\vdots & 0 & 0 \\
+1 & 0 & 0 \\ \hline
+0 & 1 & 0 \\
+0 & 1 & 0 \\
+\vdots & 1 & 0 \\
+0 & 1 & 0 \\ \hline
+0 & 0 & 1 \\
+0 & 0 & 1 \\
+\vdots & 0 & 1 \\
+0 & 0 & 1 \\
+\end{bmatrix}
+\]
+This allows different neurons to have different intercepts.
+
+\item$\varepsilon$ is the error term for the model, where each entry follows $\mathcal{N}(0, \sigma^2)$ distribution. 
 \end{itemize}
 
 We chose these two models to compare because we want to understand if neurons integrate the activities from other neurons similarly or differently. In model 1, the coefficient for the predictors could be different across neurons 234, 168, and 281, representing different integrations of the activity of other neurons. On the other hand, model 2 requires the coefficient and integration to be the same. Based on neuroscience knowledge, we hypothesize that model 1 will have better performance, as different neurons have different connectivity with other neurons and integrate signals differently. 
+
+In reality, we do not use all the neurons as predictors. This is because later we fit a linear mixed effect model and we have to discard the columns with high colinearity. Hence, for later comparison, we also discard all the predictors with high colinearity here. 
 
 ## 3.2 Fitting the Frequentist Model(s)
 
@@ -229,22 +253,24 @@ Here, we display the value of the coefficients for the first few predictors in t
 
 \begin{table}[h]
     \centering
-    \begin{tabular}{l l l l l}
-        \toprule
-        Predictor & Neuron 234 & Neuron 168 & Neuron 281 & Concatenated Model \\
-        \midrule
-        Intercept  & (0.005591041, 0.005613210) & (0.005312669, 0.005343145) & (0.005685553, 0.005697239) & (0.005531333, 0.005549619) \\
-        Neuron\_3  & (-0.000062014, 0.000012137) & (-0.000057792, 0.000044143) & (-0.000039987, -0.000000902) & (-0.000047983, 0.000013178) \\
-        Neuron\_4  & (-0.000119390, -0.000049951) & (-0.000220036, -0.000124577) & (-0.000070541, -0.000033939) & (-0.000131710, -0.000074434) \\
-        Neuron\_5  & (-0.000218129, -0.000139944) & (-0.000145871, -0.000038391) & (-0.000125632, -0.000084420) & (-0.000157642, -0.000093154) \\
-        Neuron\_6  & (-0.000035827, 0.000019607) & (-0.000140004, -0.000063799) & (0.000004557, 0.000033777) & (-0.000053143, -0.000007420) \\
-        Neuron\_7  & (-0.000072916, -0.000016319) & (-0.000061191, 0.000016612) & (0.000010423, 0.000040256) & (-0.000037197, 0.000009485) \\
-        Neuron\_8  & (0.000070856, 0.000140893) & (-0.000072982, 0.000023298) & (0.000007622, 0.000044540) & (0.000006820, 0.000064589) \\
-        Neuron\_9  & (-0.000104355, -0.000018241) & (-0.000063546, 0.000054833) & (-0.000116107, -0.000070716) & (-0.000088536, -0.000017508) \\
-        Neuron\_11 & (-0.000116925, -0.000051524) & (-0.000216938, -0.000127032) & (-0.000063654, -0.000029180) & (-0.000127847, -0.000073903) \\
-        Neuron\_12 & (-0.000049917, 0.000000438) & (-0.000029895, 0.000039328) & (0.000002680, 0.000029223) & (-0.000022124, 0.000019410) \\
-        \bottomrule
-    \end{tabular}
+    \resizebox{\textwidth}{!}{
+        \begin{tabular}{l l l l l}
+            \toprule
+            Predictor & Neuron 234 & Neuron 168 & Neuron 281 & Concatenated Model \\
+            \midrule
+            Intercept  & (0.005591041, 0.005613210) & (0.005312669, 0.005343145) & (0.005685553, 0.005697239) & (0.005531333, 0.005549619) \\
+            Neuron\_3  & (-0.000062014, 0.000012137) & (-0.000057792, 0.000044143) & (-0.000039987, -0.000000902) & (-0.000047983, 0.000013178) \\
+            Neuron\_4  & (-0.000119390, -0.000049951) & (-0.000220036, -0.000124577) & (-0.000070541, -0.000033939) & (-0.000131710, -0.000074434) \\
+            Neuron\_5  & (-0.000218129, -0.000139944) & (-0.000145871, -0.000038391) & (-0.000125632, -0.000084420) & (-0.000157642, -0.000093154) \\
+            Neuron\_6  & (-0.000035827, 0.000019607) & (-0.000140004, -0.000063799) & (0.000004557, 0.000033777) & (-0.000053143, -0.000007420) \\
+            Neuron\_7  & (-0.000072916, -0.000016319) & (-0.000061191, 0.000016612) & (0.000010423, 0.000040256) & (-0.000037197, 0.000009485) \\
+            Neuron\_8  & (0.000070856, 0.000140893) & (-0.000072982, 0.000023298) & (0.000007622, 0.000044540) & (0.000006820, 0.000064589) \\
+            Neuron\_9  & (-0.000104355, -0.000018241) & (-0.000063546, 0.000054833) & (-0.000116107, -0.000070716) & (-0.000088536, -0.000017508) \\
+            Neuron\_11 & (-0.000116925, -0.000051524) & (-0.000216938, -0.000127032) & (-0.000063654, -0.000029180) & (-0.000127847, -0.000073903) \\
+            Neuron\_12 & (-0.000049917, 0.000000438) & (-0.000029895, 0.000039328) & (0.000002680, 0.000029223) & (-0.000022124, 0.000019410) \\
+            \bottomrule
+        \end{tabular}
+    }
     \caption{95\% Confidence Intervals for Predictor Coefficients for Models without Interaction Terms}
     \label{tab:ci_coefficients}
 \end{table}
@@ -252,7 +278,16 @@ Here, we display the value of the coefficients for the first few predictors in t
 
 ## 3.3 Comparing the Frequentist Models
 
-After fitting the models, the residual plots shown in Figure 7 were created to compare the strength of our frequentist models. We also calculated the $R^2$ values for all of the models for strength comparison. None of the residual plots appear to be traditionally desirable, with all of them lacking a random spread across the x-axis and instead making similar patterns to one another. However, this does not mean the models are all bad or useless. Due to lack of certainty when making predictions in the neuroscience field, what might appear as a bad or weak model in a different statistical context is considered an acceptable model in a neuroscience context. The residual plots for our first frequentist model (the residual plots belonging to Neurons 234, 168, and 281) are slightly more desirable than the residual plot for our second frequentist model (the residual plot belonging to the Concatenated Model) as the spread across the x-axis seems to be more balanced and evenly split in our residual plots for our first frequentist models than our second. Additionally, the $R^2$ values of our first frequentist model (0.075, 0.116, and 0.153) are better than the $R^2$ value of 0.039 for our second frequentist model. Between these two details, we believe that considering each neuron separately and predicting for each one individually is better than trying to compile the predictions into a single model. This not only confirms our earlier hypothesis that Model 1 is the stronger model but also makes logical sense as each neuron connects to the overall neural network differently and so they will each be affected uniquely by every predictor neuron. Additionally, we can see in Figure 8 that the coefficients between the concatenated model and the separated models tend to differ, which makes sense considering what has been discovered about the $R^2$ values and the residual plots. The concatenated coefficients tend to be different from all of the separate models and worse at predicting, overall.
+After fitting the models, we conclude that model 1 is better than model 2.In other words, considering each neuron separately and predicting for each one individually is better than trying to compile the predictions into a single model. We reached this conclusion after examining the residual plot and $R^2$ values of each model. 
+
+**Residual plots**: Residual plots are displayed in Figure 7. None of the residual plots appear to be traditionally desirable, with all of them lacking a random spread across the x-axis and instead making similar patterns to one another. However, this does not mean the models are all bad or useless. Due to lack of certainty when making predictions in the neuroscience field, what might appear as a bad or weak model in a different statistical context is considered an acceptable model in a neuroscience context. The residual plots for our first frequentist model (the residual plots belonging to Neurons 234, 168, and 281) are slightly more desirable than the residual plot for our second frequentist model (the residual plot belonging to the Concatenated Model) as the spread across the x-axis seems to be more balanced and evenly split in our residual plots for our first frequentist models than our second. 
+
+To motivate further analysis with an added interaction term between behavior and neuron activity level, we color coded the residual plot. The red circles correspond to when the mouse is reaching and the blue dots correspond to the mouse resting. We observe that neurons tend to spike more during reaches, as the red dots are denser at higher fitted values. In addition, residual is smaller at higher fitted values and bigger at lower fitted values. This motivates us to fit separate models for different behaviors, reach or nonreach, by adding an interaction term (see section 3.4). 
+
+**\( R^2 \) values**: The $R^2$ values of our first frequentist model (0.075, 0.116, and 0.153) are better than the $R^2$ value of 0.039 for our second frequentist model. 
+
+This conclusion aligns with our intuition from neuroscience: each neuron connects to the overall neural network differently and so they will each be affected uniquely by every predictor neuron. This result is further supported by comparing the coefficients between the models: the coefficients between the concatenated model and the separated models tend to differ. The numerical values of coefficients are displayed in Figure 8. 
+
 
 ```{r figs7, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8, fig.cap="\\label{fig:figs7}Residual Plots for Frequentist Models without Interaction Term"}
 par(mfrow=c(2, 2))
@@ -328,6 +363,90 @@ hist(beta3dif,
 par(mfrow=c(1,1))
 ```
 
+
+## 3.4 Frequentist Model with Behavior and Interaction Terms
+
+Our previous analysis suggested that we should fit separate models for different behaviors (i.e. reach and nonreach). We achieve this through adding a behavior term and an interaction term. 
+
+Model with Behavior and Interaction Terms:
+
+Model 1: 
+
+$$ Y_{it} = \alpha_{i} + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta_{ij} + \gamma_i Z_t + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} Z_t \delta_{ij} + \varepsilon_{it} $$
+
+Where: 
+
+\begin{itemize}
+\item$Y_{it}$ is the inferred spikes of neuron i at time t. 
+
+\item$X_{jt}$ is the inferred spikes of neuron j at time t. 
+
+\item$Z_t$ is the mouse behavior at time t. $Z_t = 1$ indicates that the mouse is reaching.
+
+\item$\alpha_{i}$, $\gamma_i$, $\beta_{ij}$ and $\gamma_{ij}$ are parameters to be fitted. 
+
+\item$\varepsilon_{it}$ is the error term for the model, $\varepsilon_{it} \sim \mathcal{N}(0, \sigma_{i}^2)$. 
+\end{itemize}
+
+Model 2: 
+
+$$ Y =\mathbb{I} \alpha + X \beta + \gamma Z + \delta X \odot Z + \varepsilon$$
+
+Where:
+
+\begin{itemize}
+\item$Y$ is the time series of neurons 234, 168, and 281, concatenated vertically. It is an array of dimension ( $3 \times \text{number of time bins}$) by 1
+
+\item$X_t$ is the time series of all neurons other than neurons 234, 168, and 281, concatenated three times vertically. It is a matrix of dimension ( $3 \times \text{number of time bins}$) by (number of other neurons).
+
+\item$Z$ is a vector of length (number of time bins). Each entry indicates whether the mouse is reaching. $\odot$ indicates element-wise multiplication onto the rows of X.
+
+\item$\alpha$, $\beta$, $\gamma$ and $\delta$ are parameters to be fitted. 
+
+\item$\mathbb{I}$ represents the matrix: 
+
+\[
+\mathbb{I} =
+\begin{bmatrix}
+1 & 0 & 0 \\
+1 & 0 & 0 \\
+\vdots & 0 & 0 \\
+1 & 0 & 0 \\ \hline
+0 & 1 & 0 \\
+0 & 1 & 0 \\
+\vdots & 1 & 0 \\
+0 & 1 & 0 \\ \hline
+0 & 0 & 1 \\
+0 & 0 & 1 \\
+\vdots & 0 & 1 \\
+0 & 0 & 1 \\
+\end{bmatrix}
+\]
+This allows different neurons to have different intercepts.
+
+\item$\varepsilon$ is the error term for the model, where each entry follows $\mathcal{N}(0, \sigma^2)$ distribution. 
+\end{itemize}
+
+Conclusion: 
+
+Table 2 compares the MSE with and without the interaction terms. We observe that adding the interaction term slightly improved the model. This aligns with our hypothesis that considering behavior would improve the prediction. We also display the residual plots and the difference between the coefficients in figure 9 and figure 10. The observations are similar to the previous observations in section 3.3.
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l r r}
+        \toprule
+        Neuron & MSE (Without Interaction) & MSE (With Interaction) \\
+        \midrule
+        Neuron 234 & 0.0000000403003 & 0.0000000386019 \\
+        Neuron 168 & 0.0000000749406 & 0.0000000729084 \\
+        Neuron 281 & 0.0000000114106 & 0.0000000108694 \\
+        Concatenated Model & 0.0000000802695 & 0.0000000795497 \\
+        \bottomrule
+    \end{tabular}
+    \caption{MSE values for Models with and without Interaction Terms}
+\end{table}
+
+
 ```{r figs9, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8, fig.cap="\\label{fig:figs9}Residual Plots for Frequentist Models with Interaction Term"}
 par(mfrow=c(2, 2))
 
@@ -394,16 +513,87 @@ hist(beta3dif_int,
      border = "black")
 par(mfrow=c(1,1))
 ```
+\clearpage
 
-```{r figs11, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs11}Residual Plot for Frequentist Linear Mixed Effects Model"}
-res = residuals(modellme)
-fit = fitted(modellme)
 
-plot(fit, res, col = colors,
-     xlab = "Fitted Values (Linear Mixed Effects)", ylab = "Residuals (Linear Mixed Effects)", 
-     main = "Residuals Plot for Linear Mixed Effects")
-abline(h = 0, col = "black", lwd = 2)
-```
+## 3.5 Frequentist Linear Mixed Effects Model
+
+In previous models, we fitted separate models for different neurons. Yet, neuron responses are often correlated, so we would like to capture both population-level effects and neuron-level effects. Therefore, we fit a linear mixed effects model in this section. The model is formulated as follows: 
+
+$$
+Y_{it} = \alpha + u_i + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} (\beta + v_{ij}) + (\gamma + w_i) Z_t + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} Z_t (\delta + r_{ij}) + \varepsilon_{it}
+$$
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2), \quad
+v_{ij} \sim \mathcal{N}(0, \sigma_v^2), \quad
+w_i \sim \mathcal{N}(0, \sigma_w^2), \quad
+r_{ij} \sim \mathcal{N}(0, \sigma_r^2), \quad
+\varepsilon_{it} \sim \mathcal{N}(0, \sigma^2)
+$$
+Where: 
+
+\begin{itemize}
+
+\item $\alpha$ is the fixed intercept across all neurons. 
+
+\item $u_i \sim \mathcal{N}(0, \sigma_{u}^2)$ is the random deviation for neuron i, indicating neuron-level heterogeneity. 
+
+\item $\beta$ is the fixed slope across all neurons. 
+
+\item $v_{ij} \sim \mathcal{N}(0, \sigma_{v}^2)$ captures random slope for each neuron. 
+
+\item $\gamma$ is the fixed behaviorial effect across all neurons. 
+
+\item $w_i \sim \mathcal{N}(0, \sigma_{w}^2)$ is the random effect of behavior for each neuron.
+
+\item $\delta$ is the fixed effect of interaction term. 
+
+\item $r_{ij} \sim \mathcal{N}(0, \sigma_{r}^2)$ is the random effect of interaction term. 
+
+\item $\varepsilon_{it} \sim \mathcal{N} (0, sigma^2)$ models the noise.
+
+\end{itemize}
+
+However, due to the computational constraint, we could only model the random effects of the intercepts. Hence, the model we implemented is as follows:
+
+$$
+Y_{it} = \alpha + u_i + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta + \gamma Z_t + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} Z_t \delta + \varepsilon_{it}
+$$
+
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2), \varepsilon_{it} \sim \mathcal{N}(0, \sigma^2)
+$$
+The parameters we are fitting are $\alpha$, $\sigma_u$, $\beta$, $\gamma$, $\delta$, and $\sigma$. 
+
+### Results:
+
+Table 3 displays the 95% confidence interval for the intercept and slope for each neuron.
+
+\begin{table}[h]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \begin{tabular}{l l l l l l}
+            \toprule
+            Predictor & Neuron 234 & Neuron 168 & Neuron 281 & Concatenated Model & Linear Mixed Effects Model CI \\
+            \midrule
+            Intercept  & (0.005589320, 0.005611658) & (0.005312189, 0.005343001) & (0.005682227, 0.005694000) & (0.005529362, 0.005548103) & (0.0053004323, 0.00577703372) \\
+            Neuron\_3  & (-0.000093692, -0.000015493) & (-0.000141707, -0.000033847) & (-0.000053115, -0.000011904) & (-0.000091095, -0.000025491) & (-0.0000841748, -0.00003241120) \\
+            Neuron\_4  & (-0.000128202, -0.000056707) & (-0.000246019, -0.000147406) & (-0.000078624, -0.000040946) & (-0.000146306, -0.000086327) & (-0.0001399801, -0.00009265392) \\
+            Neuron\_5  & (-0.000244212, -0.000163509) & (-0.000156261, -0.000044948) & (-0.000137379, -0.000094848) & (-0.000174045, -0.000106341) & (-0.0001669039, -0.00011348212) \\
+            Neuron\_6  & (-0.000030428, 0.000025280) & (-0.000144173, -0.000067335) & (0.000001989, 0.000031348) & (-0.000053921, -0.000007186) & (-0.0000489907, -0.00001211528) \\
+            Neuron\_7  & (-0.000075253, -0.000011355) & (-0.000066191, 0.000021943) & (0.000032153, 0.000065828) & (-0.000032282, 0.000021324) & (-0.0000266274, 0.00001566940) \\
+            Neuron\_8  & (0.000060531, 0.000133431) & (-0.000045414, 0.000055137) & (0.000000415, 0.000038833) & (0.000009910, 0.000071068) & (0.0000163614, 0.00006461660) \\
+            Neuron\_9  & (-0.000113067, -0.000021534) & (-0.000016473, 0.000109779) & (-0.000118681, -0.000070443) & (-0.000076798, -0.000000008) & (-0.0000686987, -0.00000810728) \\
+            Neuron\_11 & (-0.000094082, -0.000025467) & (-0.000196817, -0.000102177) & (-0.000079635, -0.000043475) & (-0.000119057, -0.000061494) & (-0.0001129855, -0.00006756448) \\
+            Neuron\_12 & (-0.000052727, 0.000000181) & (-0.000027003, 0.000045973) & (-0.000000775, 0.000027108) & (-0.000023400, 0.000020986) & (-0.0000187176, 0.00001630364) \\
+            \bottomrule
+        \end{tabular}
+    }
+    \caption{95\% Confidence Intervals for Predictor Coefficients for Models with Interaction Terms and Linear Mixed Effects Model}
+    \label{tab:ci_coefficients_int_lme}
+\end{table}
+
+The linear mixed effect model has a higher MSE than all other frequentist model (Table 4). This is likely because we could only take into account the random effect on the intercept, due to computational constraints.
 
 \begin{table}[h]
     \centering
@@ -425,49 +615,118 @@ abline(h = 0, col = "black", lwd = 2)
     \caption{MSE values for Frequentist Models}
 \end{table}
 
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l l l l l}
-        \toprule
-        Predictor & Neuron 234 & Neuron 168 & Neuron 281 & Concatenated Model \\
-        \midrule
-        Intercept  & (0.005589320, 0.005611658) & (0.005312189, 0.005343001) & (0.005682227, 0.005694000) & (0.005529362, 0.005548103) \\
-        Neuron\_3  & (-0.000093692, -0.000015493) & (-0.000141707, -0.000033847) & (-0.000053115, -0.000011904) & (-0.000091095, -0.000025491) \\
-        Neuron\_4  & (-0.000128202, -0.000056707) & (-0.000246019, -0.000147406) & (-0.000078624, -0.000040946) & (-0.000146306, -0.000086327) \\
-        Neuron\_5  & (-0.000244212, -0.000163509) & (-0.000156261, -0.000044948) & (-0.000137379, -0.000094848) & (-0.000174045, -0.000106341) \\
-        Neuron\_6  & (-0.000030428, 0.000025280) & (-0.000144173, -0.000067335) & (0.000001989, 0.000031348) & (-0.000053921, -0.000007186) \\
-        Neuron\_7  & (-0.000075253, -0.000011355) & (-0.000066191, 0.000021943) & (0.000032153, 0.000065828) & (-0.000032282, 0.000021324) \\
-        Neuron\_8  & (0.000060531, 0.000133431) & (-0.000045414, 0.000055137) & (0.000000415, 0.000038833) & (0.000009910, 0.000071068) \\
-        Neuron\_9  & (-0.000113067, -0.000021534) & (-0.000016473, 0.000109779) & (-0.000118681, -0.000070443) & (-0.000076798, -0.000000008) \\
-        Neuron\_11 & (-0.000094082, -0.000025467) & (-0.000196817, -0.000102177) & (-0.000079635, -0.000043475) & (-0.000119057, -0.000061494) \\
-        Neuron\_12 & (-0.000052727, 0.000000181) & (-0.000027003, 0.000045973) & (-0.000000775, 0.000027108) & (-0.000023400, 0.000020986) \\
-        \bottomrule
-    \end{tabular}
-    \caption{95\% Confidence Intervals for Predictor Coefficients for Models with Interaction Terms}
-    \label{tab:ci_coefficients_int}
-\end{table}
+Figure 10 displays the residual plot for the lme model. Recall for previous frequentist models, the residual is much bigger for lower fitted values. Here, we do not observe this pattern. Although there is still some pattern -- higher residual at medium fitted values, the pattern isn't as prominent as in other frequentist models.
+
+```{r figs11, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs11}Residual Plot for Frequentist Linear Mixed Effects Model"}
+res = residuals(modellme)
+fit = fitted(modellme)
+
+plot(fit, res, col = colors,
+     xlab = "Fitted Values (Linear Mixed Effects)", ylab = "Residuals (Linear Mixed Effects)", 
+     main = "Residuals Plot for Linear Mixed Effects")
+abline(h = 0, col = "black", lwd = 2)
+```
+
+In conclusion, for the lme model, we observe higher MSE, but less pattern in the residual plot. Hence, lme model could be a better fit, despite the higher MSE. 
+
+\clearpage
 
 # 4. Bayesian Analysis
 
-Propose the Bayesian analysis you will work on during the rest of the quarter in this session.
+In this section, we fit a Bayesian model to predict neuron activity. This allows us to account for both population-level information and neuron-level heterogeneity, as well as to incorporate prior information.
 
 ## 4.1 Proposed Bayesian Model(s)
 
-In this section,
+We propose to model the neuron activity using a Bayesian linear regression model. This is because in our previous frequentist analysis, we observed both correlation across neuron population, but also heterogeneity for individual neurons. A Bayesian linear regression model is able to capture the pattern at both the population and individual level. 
 
-formulate the Bayesian model(s) you are going to use to analyze your dataset. Be sure to first define the notations involved in the model(s).
+The model is formulated as follows: 
 
-discuss how you will elicit the prior(s).
+$$
+Y_{it} \sim \mathcal{N}(\mu_{it}, \sigma^2)
+$$
+
+$$
+\mu_{it} = \alpha + u_i + \sum_{j=1}^{p} X_{jt} \beta_j + \gamma Z_t + \sum_{j=1}^{p} X_{jt} Z_t \delta_j
+$$
+Random effects:
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2)
+$$
+Fixed effect: 
+$$
+\beta_j \propto 1, \delta_j \propto 1, \gamma \propto 1, \sigma_u \sim t(3, 0, 2.5), \sigma \sim t(3, 0, 2.5)
+$$
+
+We chose these priors because they are the default of the brms package.
 
 ## 4.2 Fitting the Bayesian model(s)
 
-Propose how you will fit the proposed Bayesian models.
+We fit the model by running MCMC chains, with 2 chains, 3000 iterations and 1000 iterations as warm up. 
 
-Propose how you will perform sensitivity analysis of the Bayesian models, i.e., how the posterior distribution is affected by the prior
+### Results:
 
-Propose how you will check the MCMC convergence.
+Table 5 displays the 95% confidence interval for the coefficients $\beta_j$ and the random effects $u_i$. 
 
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l l}
+        \toprule
+        Predictor & 95\% CI for Coefficients \\
+        \midrule
+        Intercept  & (-0.148673559857, 0.00657385172) \\
+        Neuron\_3  & (0.000218055761, 0.00065348163) \\
+        Neuron\_4  & (-0.000207981754, 0.00024537492) \\
+        Neuron\_5  & (-0.000381059900, 0.00005506620) \\
+        Neuron\_6  & (-0.000378376119, -0.00004816019) \\
+        Neuron\_7  & (-0.000121158162, 0.00023930122) \\
+        Neuron\_8  & (-0.000169068717, 0.00031157171) \\
+        Neuron\_9  & (-0.000262885197, 0.00028710419) \\
+        Neuron\_11 & (-0.000181801996, 0.00022621337) \\
+        Neuron\_12 & (-0.000209360478, 0.00007161157) \\
+        \midrule
+        \textbf{Random Effects} & \\
+        Neuron\_168 & (0.0687925, 0.0694668) \\
+        Neuron\_234 & (0.0690860, 0.0694672) \\
+        Neuron\_281 & (0.0691905, 0.0694670) \\
+        \bottomrule
+    \end{tabular}
+    \caption{95\% Confidence Intervals for Coefficients and Random Effects in the Bayesian Hierarchical Model}
+    \label{tab:bayesian_model_ci_random}
+\end{table}
+
+We check convergence by examining the Rhat Value (Table 6). The MCMC simulation converged for the slopes, indicated by a Rhat value close to 1, but not the intercept. 
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l l}
+        \toprule
+        Parameter & Rhat Value \\
+        \midrule
+        Intercept  & 1.9036 \\
+         Neuron\_3  & 1.0004 \\
+        Neuron\_4  & 0.9999 \\
+        Neuron\_5  & 1.0002 \\
+        Neuron\_6  & 0.9997 \\
+        Neuron\_7  & 1.0008 \\
+        Neuron\_8  & 1.0015 \\
+        Neuron\_9  & 1.0002 \\
+        Neuron\_11 & 1.0006 \\
+        Neuron\_12 & 1.0001 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Rhat Values for Model Parameters (MCMC Convergence Diagnostics)}
+    \label{tab:rhat_values}
+\end{table}
+
+To do: Sensitivity analysis
+
+\clearpage
+
+## 4.3 Prediction
+
+To make posterior predictions, we sample 10000 points from the data and use the predict function in the brms package to generate prediction. The comparison between predicted data and actual data is displayed in figure 11.
+
+```{r, echo=FALSE}
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -493,23 +752,27 @@ X1_df$neuron = neuron_labels
 
 X1_df = X1_df %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
-
-brmodel <- brm(formula = formula_str, 
-             data = X1_df[1:2000,], 
-             warmup = 1000, iter = 3000, 
-             cores = 4, chains = 2, seed = 123)
 ```
 
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
-summary(brmodel)
+
+```{r figs12, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs12}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model"}
+set.seed(12345)
+sample_indices = sample(nrow(X1_df), 10000)
+
+sample_df = X1_df[sample_indices, ]
+predicted_vals = predict(brmodel2, newdata = sample_df)
+actual_vals = sample_df$Y
+
+ggplot(data = data.frame(actual_vals, predicted_vals = predicted_vals[, "Estimate"]),
+       aes(x = actual_vals, y = predicted_vals)) +
+  geom_point(alpha = 0.5) +  
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  
+  labs(title = "Actual vs. Predicted", x = "Actual Y", y = "Predicted Y") +
+  theme_minimal()
 ```
 
-## 4.3 Prediction
 
-In this section, propose how you can make predictions using the Bayesian model.
+\clearpage
 
 # 5. Discussion
 
@@ -912,4 +1175,45 @@ mse_results <- data.frame(
   Model = c("LM1", "LM2", "LM3", "LM4", "LM5", "LM6", "LM7", "LM8", "LM9"),
   MSE = c(mse1, mse2, mse3, mse4, mse5, mse6, mse7, mse8, mse9)
 )
+```
+
+
+```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+
+neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+
+X1_df = as.data.frame(X_combined)
+Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+X1_df$Y = Y_combined
+X1_df$neuron = neuron_labels
+
+X1_df = X1_df %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
+
+brmodel <- brm(formula = formula_str, 
+             data = X1_df[1:2000,], 
+             warmup = 1000, iter = 3000, 
+             cores = 4, chains = 2, seed = 123)
+```
+
+```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+summary(brmodel)
 ```
