@@ -29,7 +29,7 @@ calcium_reach_times = read_csv("calcium_reach_times.csv")
 
 # 1. Introduction
 
-Complex motor skills, which are precise and non-stereotypical movements, are essential for survival. For example, squirrels need to jump from branch to branch, and eagles need to catch small prey. Understanding brain activity during complex motor skills is essential in motor control and motor learning. Towards this goal, the MacLean Lab, a neuroscience lab at The University of Chicago, performed neuro-recording on the mouse primary motor (M1) cortex while the mouse was engaged in a reach-to-grasp movement. The M1 cortex can be seen as a recurrent neural network, receiving upstream signals on motor planning and body position, and outputting commands to downstream areas, such as the spinal cord and brainstem. While networks are very complex objects of study, we chose a narrow objective for this project: given a neuron in the network, we want to predict its activity using the activity of other neurons. We hope this can inspire future research on the dynamics and structure of neural networks.
+Complex motor skills, which are precise and non-stereotypical movements, are essential for survival. For example, squirrels need to jump from branch to branch, and eagles need to catch small prey. Understanding brain activity during complex motor skills is essential in motor control and motor learning. Towards this goal, the MacLean Lab, a neuroscience lab at The University of Chicago, performed neuro-recording on the mouse primary motor (M1) cortex while the mouse was engaged in a reach-to-grasp movement. The M1 cortex can be seen as a recurrent neural network, receiving upstream signals on motor planning and body position, and outputting commands to downstream areas, such as the spinal cord and brainstem. While networks are very complex objects of study, we chose a narrow objective for this project: for any neuron in the network, we want to predict its activity using the activity of other neurons. We hope this can inspire future research on the dynamics and structure of neural networks.
 
 ## 1.1 Dataset
 
@@ -279,93 +279,28 @@ TSS = sum((Y - mean(Y))^2)
 R_squared = 1 - RSS / TSS
 ```
 
-Here, we display the value of the coefficients for the first few predictors in table 1, 2, 3, 4. (See full set of coefficients in Appendix. (coming))
+Here, we display the value of the coefficients for the first few predictors in table 1. (See full set of coefficients in Appendix. (coming))
 
 \begin{table}[h]
     \centering
-    \begin{tabular}{l r}
+    \begin{tabular}{l r r r r}
         \toprule
-        Predictor & Coefficient \\
+        Predictor & Model 1 & Model 2 & Model 3 & Model 4 \\
         \midrule
-        Intercept  &  0.0057000007 \\
-        Neuron\_1  & -0.0007161198 \\
-        Neuron\_2  &  0.0277343380 \\
-        Neuron\_3  &  0.0016065925 \\
-        Neuron\_4  &  0.0027178334 \\
-        Neuron\_5  & -0.0057370064 \\
-        Neuron\_6  &  0.0012776469 \\
-        Neuron\_7  & -0.0024053779 \\
-        Neuron\_8  &  0.0059968300 \\
-        Neuron\_9  &  0.0044756078 \\
+        Intercept  &  0.0057000007 &  0.0031776832 &  0.0026048919 &  0.0038275253 \\
+        Neuron\_1  & -0.0007161198 &  0.0393005011 &  0.0353755239 &  0.0246533017 \\
+        Neuron\_2  &  0.0277343380 & -0.0094288755 &  0.0107636538 &  0.0096897054 \\
+        Neuron\_3  &  0.0016065925 &  0.0087287020 & -0.0014463192 &  0.0029629918 \\
+        Neuron\_4  &  0.0027178334 & -0.0084431688 & -0.0005627236 & -0.0020960197 \\
+        Neuron\_5  & -0.0057370064 & -0.0062233763 & -0.0054332369 & -0.0057978732 \\
+        Neuron\_6  &  0.0012776469 &  0.0077952762 &  0.0055248920 &  0.0048659383 \\
+        Neuron\_7  & -0.0024053779 & -0.0004962535 &  0.0012933504 & -0.0005360937 \\
+        Neuron\_8  &  0.0059968300 & -0.0051638573 & -0.0011811706 & -0.0001160659 \\
+        Neuron\_9  &  0.0044756078 & -0.0047117552 &  0.0022120294 &  0.0006586274 \\
         \bottomrule
     \end{tabular}
-    \caption{Predictor coefficients for Model 1}
-    \label{tab:model3_coefficients}
-\end{table}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0031776832 \\
-        Neuron\_1  &  0.0393005011 \\
-        Neuron\_2  & -0.0094288755 \\
-        Neuron\_3  &  0.0087287020 \\
-        Neuron\_4  & -0.0084431688 \\
-        Neuron\_5  & -0.0062233763 \\
-        Neuron\_6  &  0.0077952762 \\
-        Neuron\_7  & -0.0004962535 \\
-        Neuron\_8  & -0.0051638573 \\
-        Neuron\_9  & -0.0047117552 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 2}
-    \label{tab:model4_coefficients}
-\end{table}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0026048919 \\
-        Neuron\_1  &  0.0353755239 \\
-        Neuron\_2  &  0.0107636538 \\
-        Neuron\_3  & -0.0014463192 \\
-        Neuron\_4  & -0.0005627236 \\
-        Neuron\_5  & -0.0054332369 \\
-        Neuron\_6  &  0.0055248920 \\
-        Neuron\_7  &  0.0012933504 \\
-        Neuron\_8  & -0.0011811706 \\
-        Neuron\_9  &  0.0022120294 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 3}
-\end{table}
-
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l r}
-        \toprule
-        Predictor & Coefficient \\
-        \midrule
-        Intercept  &  0.0038275253 \\
-        Neuron\_1  &  0.0246533017 \\
-        Neuron\_2  &  0.0096897054 \\
-        Neuron\_3  &  0.0029629918 \\
-        Neuron\_4  & -0.0020960197 \\
-        Neuron\_5  & -0.0057978732 \\
-        Neuron\_6  &  0.0048659383 \\
-        Neuron\_7  & -0.0005360937 \\
-        Neuron\_8  & -0.0001160659 \\
-        Neuron\_9  &  0.0006586274 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Predictor coefficients for Model 4}
-    \label{tab:model2_coefficients}
+    \caption{Combined predictor coefficients from Models 1–4}
+    \label{tab:combined_coefficients}
 \end{table}
 
 Table 5 summarizes the model performance, measured by $R^2$: 
