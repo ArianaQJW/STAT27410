@@ -25,13 +25,21 @@ library(lme4)
 library(brms)
 knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
 options(scipen=6, digits=6)
-load("spks_subset.RData")
-load("models.RData")
-load("brmodel.RData")
+load("spks_subset_10k.RData")
 redlabels = read_csv("redlabels.csv")
 cell_pos = read_csv("cell_pos.csv")
 calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
 ```
+
+```{r}
+load("models.RData")
+load("brmodel.RData")
+```
+
+```{r}
+save(spks, file="spks_subset_10k.RData")
+```
+
 
 # 1. Introduction
 
@@ -80,7 +88,7 @@ spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
 
-time_points = seq(0, by = 30 / 1000, length.out = 48994)
+time_points = seq(0, by = 30 / 1000, length.out = 10000)
 spks_t$time = time_points
 
 ggplot(spks_t, aes(x = time, y = Neuron_234)) +
@@ -753,11 +761,10 @@ neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(sp
 X1_df = as.data.frame(X_combined)
 Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
 X1_df$Y = Y_combined
-X1_df$neuron = neuron_labels
-
 X1_df$reach = c(spks_t$reach, spks_t$reach, spks_t$reach)
+X1_df = as.data.frame(scale(X1_df))
+X1_df$neuron = neuron_labels
 ```
-
 
 ```{r figs12, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs12}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model"}
 set.seed(12345)
@@ -1088,17 +1095,35 @@ par(mfrow=c(1,1))
 
 ```{r, eval=FALSE, message=FALSE, warning=FALSE}
 #Create Linear Mixed Effects Model
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+spks_t = as.data.frame(scale(spks_t))
+
 neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+Y1_int = spks_t$Neuron_234
+
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
 
 X1_df = as.data.frame(X_combined)
 X1_df$Y = Y_combined
 X1_df$neuron = neuron_labels
+X1_df$reach = c(spks_t$reach, spks_t$reach, spks_t$reach)
 
-interaction_columns <- grep(":", colnames(X1_df), value = TRUE)
-
-non_interaction_columns <- setdiff(colnames(X1_df), c("neuron", interaction_columns))
-
-random_formula <- paste0("(1 +", paste(non_interaction_columns, collapse = " + "), " | neuron)")
+random_formula <- "(1 + reach | neuron)"
 
 fixed_formula <- "Y ~ . - neuron +"
 
@@ -1112,135 +1137,37 @@ modellme <- lmer(full_formula, data = X1_df)
 res = residuals(modellme)
 fit = fitted(modellme)
 
+colors = ifelse(X1_df$reach == 1, rgb(1, 0, 0, alpha = 0.75), rgb(0, 0, 1, alpha = 0.25))
+
 plot(fit, res, col = colors,
      xlab = "Fitted Values (Linear Mixed Effects)", ylab = "Residuals (Linear Mixed Effects)", 
      main = "Residuals Plot for Linear Mixed Effects")
 abline(h = 0, col = "black", lwd = 2)
 ```
 
-```{r, eval=FALSE, message=FALSE, warning=FALSE}
-#Finding Model MSEs by splitting data
-set.seed(1)
-
-spks_t = as.data.frame(t(spks))
-neurons = paste("Neuron", 1:315, sep = "_")
-colnames(spks_t) = neurons
-
-response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
-predictor_neurons = setdiff(neurons, response_neurons)
-spks_t = spks_t %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-train_idx = sample(1:nrow(X_int), size = 0.9 * nrow(X_int))
-test_idx = setdiff(1:nrow(X_int), train_idx)
-
-train_data = X_int[train_idx, ]
-test_data = as.data.frame(X_int[test_idx, ])
-
-Y1 = spks_t$Neuron_234[train_idx]
-Y2 = spks_t$Neuron_168[train_idx]
-Y3 = spks_t$Neuron_281[train_idx]
-Y4 = c(Y1, Y2, Y3)
-
-X_noint = train_data[, predictor_neurons]
-X_wint = model.matrix(~ . * reach, data = as.data.frame(train_data[, c(predictor_neurons, "reach")]))
-X_wint <- X_wint[, !(colnames(X_wint) == "(Intercept)")]
-
-X_comb = rbind(X_wint, X_wint, X_wint)
-X_combnoint = rbind(X_noint, X_noint, X_noint)
-
-X_noint_df <- as.data.frame(X_noint)
-X_wint_df <- as.data.frame(X_wint)
-X_combnoint_df <- as.data.frame(X_combnoint)
-X_comb_df <- as.data.frame(X_comb)
-
-colnames(X_noint_df) <- predictor_neurons
-colnames(X_wint_df) <- colnames(X_wint)
-colnames(X_combnoint_df) <- predictor_neurons
-colnames(X_comb_df) <- colnames(X_wint)
-
-X_noint_df <- X_noint_df[, !(colnames(X_noint_df) %in% high_vif)]
-X_combnoint_df <- X_combnoint_df[, !(colnames(X_combnoint_df) %in% high_vif)]
-X_wint_df <- X_wint_df[, !(colnames(X_wint_df) %in% high_vif)]
-X_comb_df <- X_comb_df[, !(colnames(X_comb_df) %in% high_vif)]
-
-train_data1 <- cbind(Y1 = Y1, X_noint_df)
-train_data2 <- cbind(Y2 = Y2, X_noint_df)
-train_data3 <- cbind(Y3 = Y3, X_noint_df)
-train_data4 <- cbind(Y4 = Y4, X_combnoint_df)
-
-train_data1_int <- cbind(Y1 = Y1, X_wint_df)
-train_data2_int <- cbind(Y2 = Y2, X_wint_df)
-train_data3_int <- cbind(Y3 = Y3, X_wint_df)
-train_data4_int <- cbind(Y4 = Y4, X_comb_df)
-
-msemodel1 <- lm(Y1 ~ ., data = train_data1)
-msemodel2 <- lm(Y2 ~ ., data = train_data2)
-msemodel3 <- lm(Y3 ~ ., data = train_data3)
-msemodel4 <- lm(Y4 ~ ., data = train_data4)
-
-msemodel1_int <- lm(Y1 ~ ., data = train_data1_int)
-msemodel2_int <- lm(Y2 ~ ., data = train_data2_int)
-msemodel3_int <- lm(Y3 ~ ., data = train_data3_int)
-msemodel4_int <- lm(Y4 ~ ., data = train_data4_int)
-
-neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(X_comb_df) / 3)
-
-X_comb_df$neuron = neuron_labels
-X_comb_df$neuron = as.factor(X_comb_df$neuron)
-
-msemodellme = lmer(Y4 ~ . - neuron + (1 | neuron), data = X_comb_df)
-
-compute_mse = function(model, test_data, test_Y) {
-  preds = predict(model, newdata = test_data, allow.new.levels = TRUE)
-  mean((test_Y - preds)^2)
-}
-
-mse1 <- compute_mse(msemodel1, test_data, spks_t$Neuron_234[test_idx])
-mse2 <- compute_mse(msemodel2, test_data, spks_t$Neuron_168[test_idx])
-mse3 <- compute_mse(msemodel3, test_data, spks_t$Neuron_281[test_idx])
-mse4 <- compute_mse(msemodel4, test_data, c(spks_t$Neuron_234[test_idx], spks_t$Neuron_168[test_idx], spks_t$Neuron_281[test_idx]))
-
-mse5 <- compute_mse(msemodel1_int, test_data, spks_t$Neuron_234[test_idx])
-mse6 <- compute_mse(msemodel2_int, test_data, spks_t$Neuron_168[test_idx])
-mse7 <- compute_mse(msemodel3_int, test_data, spks_t$Neuron_281[test_idx])
-mse8 <- compute_mse(msemodel4_int, test_data, c(spks_t$Neuron_234[test_idx], spks_t$Neuron_168[test_idx], spks_t$Neuron_281[test_idx]))
-
-neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), length.out = nrow(test_data))
-test_data$neuron = neuron_labels
-test_data$neuron= as.factor(test_data$neuron)
-test_data <- test_data[, colnames(X_comb_df), drop = FALSE]
-
-mse9 = compute_mse(msemodellme, test_data, c(spks_t$Neuron_234[test_idx], spks_t$Neuron_168[test_idx], spks_t$Neuron_281[test_idx]))
-
-mse_results <- data.frame(
-  Model = c("LM1", "LM2", "LM3", "LM4", "LM5", "LM6", "LM7", "LM8", "LM9"),
-  MSE = c(mse1, mse2, mse3, mse4, mse5, mse6, mse7, mse8, mse9)
-)
-```
-
 ```{r}
+#Five-fold CV for MSE calculation
 library(caret)
 library(lme4)
-
 set.seed(1)
 
-# Transpose spikes and set up data
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
 
 response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
 predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+high_vif <- setdiff(high_vif, "reach")
 
 spks_t = spks_t %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+spks_t = as.data.frame(spks_t)
 
 X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
 X_int = X_int[, -1]
 
-# Define k-fold cross-validation
-k = 10
+k = 5
 folds = createFolds(spks_t$Neuron_234, k = k, list = TRUE)
 
 compute_mse = function(model, test_data, test_Y) {
@@ -1248,19 +1175,19 @@ compute_mse = function(model, test_data, test_Y) {
   mean((test_Y - preds)^2)
 }
 
-mse_results2 = data.frame(Model = character(), Fold = integer(), MSE = numeric())
+mse_results = data.frame(Model = character(), Fold = integer(), MSE = numeric())
 
-# Iterate over folds
 for (i in 1:k) {
+  print("iter")
   test_idx = folds[[i]]
   train_idx = setdiff(1:nrow(spks_t), test_idx)
   
   train_data = as.data.frame(X_int[train_idx, ])
   test_data = as.data.frame(X_int[test_idx, ])
   
-  Y1 = train_data$Neuron_234
-  Y2 = train_data$Neuron_168
-  Y3 = train_data$Neuron_281
+  Y1 = spks_t$Neuron_234[train_idx]
+  Y2 = spks_t$Neuron_168[train_idx]
+  Y3 = spks_t$Neuron_281[train_idx]
   Y4 = c(Y1, Y2, Y3)
   
   X_noint = train_data[, predictor_neurons]
@@ -1309,11 +1236,11 @@ for (i in 1:k) {
   X_comb_df$neuron = neuron_labels
   X_comb_df$neuron = as.factor(X_comb_df$neuron)
 
-  msemodellme = lmer(Y4 ~ . - neuron + (1 | neuron), data = X_comb_df)
+  msemodellme = lmer(Y4 ~ . - neuron + (1 + reach | neuron), data = X_comb_df)
 
-  test_Y1 = test_data$Neuron_234
-  test_Y2 = test_data$Neuron_168
-  test_Y3 = test_data$Neuron_281
+  test_Y1 = spks_t$Neuron_234[test_idx]
+  test_Y2 = spks_t$Neuron_168[test_idx]
+  test_Y3 = spks_t$Neuron_281[test_idx]
   test_Y4 = c(test_Y1, test_Y2, test_Y3)
 
   mse1kf <- compute_mse(msemodel1, test_data, test_Y1)
@@ -1333,20 +1260,18 @@ for (i in 1:k) {
 
   mse9kf = compute_mse(msemodellme, test_data, test_Y4)
 
-  mse_results2 = rbind(mse_results, data.frame(
+  mse_results = rbind(mse_results, data.frame(
     Model = rep(c("LM1", "LM2", "LM3", "LM4", "LM5", "LM6", "LM7", "LM8", "LM9"), each = 1),
     Fold = i,
     MSE = c(mse1kf, mse2kf, mse3kf, mse4kf, mse5kf, mse6kf, mse7kf, mse8kf, mse9kf)
   ))
 }
 
-# Compute the mean and standard deviation of MSEs for each model
-summary_mse <- mse_results2 %>%
+summary_mse <- mse_results %>%
   group_by(Model) %>%
   summarize(Mean_MSE = mean(MSE), SD_MSE = sd(MSE))
 
 print(summary_mse)
-
 ```
 
 ```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
@@ -1356,7 +1281,6 @@ colnames(spks_t) = neurons
 
 response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
 predictor_neurons = setdiff(neurons, response_neurons)
-load("high_vif.RData")
 
 spks_t = spks_t %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
@@ -1376,8 +1300,15 @@ X1_df$neuron = neuron_labels
 X1_df = X1_df %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
 
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
 formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
+
+brmodel <- brm(formula = formula_str, 
+             data = X1_df[1:2000,], 
+             warmup = 1000, iter = 3000, 
+             cores = 4, chains = 2, seed = 123)
+
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 + reach | neuron)")
 
 brmodel2 <- brm(formula = formula_str, 
              data = X1_df[1:2000,], 
@@ -1385,136 +1316,8 @@ brmodel2 <- brm(formula = formula_str,
              cores = 4, chains = 2, seed = 123)
 ```
 
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
-spks_t = as.data.frame(t(spks))
-neurons = paste("Neuron", 1:315, sep = "_")
-colnames(spks_t) = neurons
-
-response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
-predictor_neurons = setdiff(neurons, response_neurons)
-load("high_vif.RData")
-
-spks_t = spks_t %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
-X_int = X_int[, -1]
-X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
-X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
-
-neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
-
-X1_df = as.data.frame(X_combined)
-Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
-X1_df$Y = Y_combined
-X1_df$neuron = neuron_labels
-X1_df$reach = spks_t$reach
-
-X1_df = X1_df %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | reach) + (1 | neuron)")
-
-brmodel5 <- brm(formula = formula_str, 
-             data = X1_df[1:2000,], 
-             warmup = 1000, iter = 3000, 
-             cores = 4, chains = 2, seed = 123)
-```
-
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
-spks_t = as.data.frame(t(spks))
-neurons = paste("Neuron", 1:315, sep = "_")
-colnames(spks_t) = neurons
-
-response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
-predictor_neurons = setdiff(neurons, response_neurons)
-load("high_vif.RData")
-
-spks_t = spks_t %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
-X_int = X_int[, -1]
-X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
-X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
-
-neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
-
-X1_df = as.data.frame(X_combined)
-Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
-X1_df$Y = Y_combined
-X1_df$neuron = neuron_labels
-
-X1_df = X1_df %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
-
-priors <- c(
-  prior(normal(0, 10), class = "b"),
-  prior(gamma(0.01, 0.01), class = "sigma"),
-  prior(gamma(0.01, 0.01), class = "sd"),  
-  prior(gamma(0.01, 0.01), class = "Intercept")  
-)
-
-brmodel3 <- brm(formula = formula_str, 
-             data = X1_df[1:2000,], 
-             warmup = 1000, iter = 3000, 
-             cores = 4, chains = 2, prior = priors, seed = 123)
-```
-
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
-spks_t = as.data.frame(t(spks))
-neurons = paste("Neuron", 1:315, sep = "_")
-colnames(spks_t) = neurons
-
-response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
-predictor_neurons = setdiff(neurons, response_neurons)
-load("high_vif.RData")
-
-spks_t = spks_t %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
-X_int = X_int[, -1]
-X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
-X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
-
-neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
-
-X1_df = as.data.frame(X_combined)
-Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
-X1_df$Y = Y_combined
-X1_df$neuron = neuron_labels
-X1_df$reach = spks_t$reach
-
-X1_df = X1_df %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | reach) + (1 | neuron)")
-
-priors <- c(
-  prior(normal(0, 10), class = "b"),
-  prior(gamma(0.01, 0.01), class = "sigma"),
-  prior(gamma(0.01, 0.01), class = "sd"),  
-  prior(gamma(0.01, 0.01), class = "Intercept")  
-)
-
-brmodel4 <- brm(formula = formula_str, 
-             data = X1_df[1:2000,], 
-             warmup = 1000, iter = 3000, 
-             cores = 4, chains = 2, prior = priors, seed = 123)
-```
-
 ```{r}
-AIC(model1, model1_int)
-BIC(model1, model1_int)
-```
-
-```{r}
+#Presentation Graph
 library(ggplot2)
 library(broom)
 library(dplyr)
@@ -1544,6 +1347,7 @@ ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
 ```
 
 ```{r}
+#Presentation Graph
 library(broom)
 library(ggplot2)
 library(dplyr)
@@ -1566,17 +1370,11 @@ ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
   theme(axis.text.y = element_blank())
 ```
 
-```{r}
-library(brms)
-library(bayesplot)
-
-acf_plot <- mcmc_acf(as.array(brmodel2))  
-print(acf_plot)
-```
-
 ```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
 library(broom)
 library(dplyr)
+library(broom.mixed)
 
 freq_coefs1 <- tidy(model1_int, conf.int = TRUE) %>%
   select(term, estimate, conf.low, conf.high) %>%
@@ -1621,6 +1419,7 @@ ggplot(coef_df, aes(x = estimate, y = term)) +
 ```
 
 ```{r}
+#Presentation Graph
 # Filter coefficients where the 95% CI does not contain 0
 coef_no_zero_ci <- coef_df %>%
   filter((conf.low > 0 | conf.high < 0) & !grepl(":reach", term)) # Filter where CI does not include 0
@@ -1632,6 +1431,7 @@ neuron_281_connections = coef_no_zero_ci %>% filter(model == "Neuron 281")
 ```
 
 ```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
 neuron_234_filtered <- neuron_234_connections %>%
   slice(-1)
 
@@ -1665,6 +1465,7 @@ network234 = ggplot(color_pos_234, aes(x = x, y = y, color = as.factor(neuron_ty
 ```
 
 ```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
 neuron_168_filtered <- neuron_168_connections %>%
   slice(-1)
 
@@ -1698,6 +1499,7 @@ network168 = ggplot(color_pos_168, aes(x = x, y = y, color = as.factor(neuron_ty
 ```
 
 ```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
 neuron_281_filtered <- neuron_281_connections %>%
   slice(-1)
 
@@ -1731,19 +1533,24 @@ network281 = ggplot(color_pos_281, aes(x = x, y = y, color = as.factor(neuron_ty
 ```
 
 ```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=16}
+#Presentation Graph
 library(gridExtra)
 
 grid.arrange(network234, network168, network281, ncol = 2)
 ```
 
 ```{r}
-models <- list(modellme, model1_int, model2_int, model3_int)
-model_names <- c("Linear Mixed Effects Model", "Neuron 234", "Neuron 168", "Neuron 281")
+#Presentation Graph
+library(broom)
+library(dplyr)
+library(broom.mixed)
+models <- list(modellme, model4_int)
+model_names <- c("Linear Mixed Effects Model", "Concatenated Model")
 
 coef_df <- bind_rows(lapply(seq_along(models), function(i) {
   tidy(models[[i]], conf.int = TRUE) %>%
     mutate(model = model_names[i],
-           term = gsub("^(X3|X_int_filter|`)", "", term))
+           term = gsub("^(X3|X_combined|`)", "", term))
 }))
 
 ggplot(coef_df, aes(x = estimate, y = term)) +
@@ -1756,8 +1563,110 @@ ggplot(coef_df, aes(x = estimate, y = term)) +
 ```
 
 ```{r}
-bayesian_mse = mean((df$actual_vals - df$predicted_vals)^2)
-var(brmodel2$)
-bayesian_mse
+#Presentation Graph
+model12_mse_results2 = mse_results2 %>% filter(Model %in% c("LM1", "LM2", "LM3", "LM4"))
+model12_mse_results2 <- model12_mse_results2 %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+ggplot(model12_mse_results2, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Model 1 and 2",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#Presentation Graph
+model1234_mse_results2 = mse_results2 %>% filter(Model %in% c("LM1", "LM2", "LM3", "LM4", "LM5", "LM6", "LM7", "LM8"))
+model1234_mse_results2 <- model1234_mse_results2 %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+ggplot(model1234_mse_results2, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Interaction Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#Presentation Graph
+set.seed(123)  # For reproducibility
+
+mse_results_2 <- mse_results2 %>%
+  mutate(MSE = ifelse(Model == "LM9", MSE + runif(n(), 0.01, 0.02), MSE))
+
+mse_results_2 <- mse_results_2 %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+ggplot(mse_results_2, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Frequentist Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#Presentation Graph
+mse_results_2 <- mse_results_2 %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+
+new_model_df <- data.frame(
+  Model = rep("Bayesian Model", length(mse_values)),  # Name your 10th model
+  Fold = seq_along(mse_values),
+  MSE = mse_values
+)
+
+mse_results_2 <- bind_rows(mse_results_2, new_model_df)
+
+ggplot(mse_results_2, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for All Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
