@@ -26,20 +26,11 @@ library(brms)
 knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
 options(scipen=6, digits=6)
 load("spks_subset_10k.RData")
+load("newmodels.RData")
 redlabels = read_csv("redlabels.csv")
 cell_pos = read_csv("cell_pos.csv")
 calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
 ```
-
-```{r}
-load("models.RData")
-load("brmodel.RData")
-```
-
-```{r}
-save(spks, file="spks_subset_10k.RData")
-```
-
 
 # 1. Introduction
 
