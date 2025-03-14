@@ -25,12 +25,15 @@ library(lme4)
 library(brms)
 knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
 options(scipen=6, digits=6)
+print(file.exists("spks_subset_10k.RData"))
 load("spks_subset_10k.RData")
-load("newmodels.RData")
+print(file.exists("newmodels.RData"))
+#load("newmodels.RData")
 redlabels = read_csv("redlabels.csv")
 cell_pos = read_csv("cell_pos.csv")
 calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
 ```
+
 
 # 1. Introduction
 
@@ -1265,7 +1268,10 @@ summary_mse <- mse_results %>%
 print(summary_mse)
 ```
 
+
 ```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#Implementation of Bayesian models with 10000 data points
+load("high_vif.RData")
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -1291,20 +1297,26 @@ X1_df$neuron = neuron_labels
 X1_df = X1_df %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
 
+# mixed effect on intercept, default prior
 fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
 formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
 
-brmodel <- brm(formula = formula_str, 
-             data = X1_df[1:2000,], 
+brmodel1 <- brm(formula = formula_str, 
+             data = X1_df, 
+             warmup = 1000, iter = 3000, 
+             cores = 4, chains = 2, seed = 123)
+save(brmodel1, file = "brmodel1_314.RData")
+
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | reach) + (1 | neuron)")
+
+# mixed effect on reach and intercept, default prior
+brmodel5 <- brm(formula = formula_str, 
+             data = X1_df, 
              warmup = 1000, iter = 3000, 
              cores = 4, chains = 2, seed = 123)
 
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 + reach | neuron)")
-
-brmodel2 <- brm(formula = formula_str, 
-             data = X1_df[1:2000,], 
-             warmup = 1000, iter = 3000, 
-             cores = 4, chains = 2, seed = 123)
+save(brmodel5, file = "brmodel5_314.RData")
 ```
 
 ```{r}
