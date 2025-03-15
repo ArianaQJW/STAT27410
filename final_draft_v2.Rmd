@@ -1272,6 +1272,7 @@ print(summary_mse)
 ```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
 #Implementation of Bayesian models with 10000 data points
 load("high_vif.RData")
+spks <- (spks - mean(spks)) / sd(spks)
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -1317,6 +1318,94 @@ brmodel5 <- brm(formula = formula_str,
              cores = 4, chains = 2, seed = 123)
 
 save(brmodel5, file = "brmodel5_314.RData")
+```
+
+```{r}
+#Optimized implementation of Bayesian models (did not work and will not be included in final report)
+# Load required libraries
+library(brms)
+library(dplyr)
+library(caret)  # For VIF calculation
+
+# Load data
+load("high_vif.RData")
+
+# Standardize predictors (spks)
+spks <- scale(spks)  # Standardizes to mean=0, sd=1
+spks_t <- as.data.frame(t(spks))
+
+neurons <- paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) <- neurons
+
+# Define response and predictor neurons
+response_neurons <- c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons <- setdiff(neurons, response_neurons)
+
+# Identify reach times and add reach column
+spks_t <- spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+# Construct interaction terms
+X_int <- model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int <- X_int[, -1]  # Remove intercept
+
+# Remove high VIF predictors
+library(car)
+
+calc_vif <- function(predictors_df, response) {
+    df <- cbind(Y = response, predictors_df)  # Combine Y and predictors
+    vif_values <- vif(lm(Y ~ ., data = df))  # Compute VIF
+    return(names(vif_values[vif_values > 5]))  # Remove predictors with VIF > 5
+}
+
+# Ensure Y is correctly defined
+Y_combined <- c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+
+# Compute high VIF predictors
+high_vif <- calc_vif(as.data.frame(X_int), Y_combined)
+
+# Filter out high VIF predictors
+X_int_filter <- X_int[, !(colnames(X_int) %in% high_vif)]
+
+# Combine data for response neurons
+X_combined <- rbind(X_int_filter, X_int_filter, X_int_filter)
+neuron_labels <- rep(response_neurons, each = nrow(spks_t))
+
+# Convert to dataframe and standardize Y
+X1_df <- as.data.frame(X_combined)
+Y_combined <- c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+X1_df$Y <- scale(Y_combined)  # Standardize response variable
+X1_df$neuron <- neuron_labels
+
+# Add reach column again
+X1_df <- X1_df %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+# Define formula for mixed-effects model
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
+formula_str <- as.formula(paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)"))
+
+# Define weakly informative priors
+priors <- c(
+  brms::prior(normal(0, 1), class = "b"),  # Priors for fixed effects
+  brms::prior(student_t(3, 0, 2.5), class = "Intercept"),  # Regularized intercept
+  brms::prior(cauchy(0, 1), class = "sd")  # Regularized random effects
+)
+
+# Fit Bayesian mixed-effects model with adjusted sampling parameters
+brmodel1 <- brm(
+  formula = formula_str, 
+  data = X1_df, 
+  prior = priors,
+  warmup = 1000, iter = 3000, 
+  chains = 2, cores = 4, seed = 123,
+  control = list(adapt_delta = 0.99, max_treedepth = 12)  # <-- Fix here
+)
+
+# Save model
+save(brmodel1, file = "brmodel1_optimized_315.RData")
+
+
 ```
 
 ```{r}
