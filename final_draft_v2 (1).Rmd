@@ -1,0 +1,1716 @@
+---
+title: "STAT 27410 Final Project Proposal"
+author: "Ariana Qin & Robert Rodriguez"
+fontsize: 12pt
+bibliography: references.bib
+output:
+  pdf_document:
+    fig_caption: yes
+  html_document:
+    df_print: paged
+  word_document: default
+  geometry: margin=0.75in
+fig_crop: no
+header-includes:
+   - \usepackage{booktabs}
+   - \usepackage{amssymb}
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(dplyr)
+library(lme4)
+library(brms)
+knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
+options(scipen=6, digits=6)
+print(file.exists("spks_subset_10k.RData"))
+load("spks_subset_10k.RData")
+print(file.exists("newmodels.RData"))
+#load("newmodels.RData")
+redlabels = read_csv("redlabels.csv")
+cell_pos = read_csv("cell_pos.csv")
+calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
+```
+
+
+# 1. Introduction
+
+Complex motor skills, which are precise and non-stereotypical movements, are essential for survival. For example, squirrels need to jump from branch to branch, and eagles need to catch small prey. Understanding brain activity during complex motor skills is essential in motor control and motor learning. Towards this goal, the MacLean Lab, a neuroscience lab at The University of Chicago, performed neuro-recording on the mouse primary motor (M1) cortex while the mouse was engaged in a reach-to-grasp movement. The M1 cortex can be seen as a recurrent neural network, receiving upstream signals on motor planning and body position, and outputting commands to downstream areas, such as the spinal cord and brainstem. While networks are very complex objects of study, we chose a narrow objective for this project: for any neuron in the network, we want to predict its activity using the activity of other neurons. We hope this can inspire future research on the dynamics and structure of neural networks.
+
+## 1.1 Dataset
+
+We use the data from the MacLean lab. During the experiment, the mouse reached for a rice grain in a head-fixed position. Before the experiment, the mouse underwent surgery so that its brain is attached to a microscope and that neurons would increase in fluorescence value when their activity increased. After the initial imaging, the MacLean Lab performed preprocessing to infer the estimated spike counts from the fluorescence data. 
+
+\begin{itemize}
+\item Time series data of neural spikes: This is a time series of the inferred number of spikes at each time bin, inferred from the fluorescence values recorded by the microscope. Each time bin is 30 ms. We have 315 neurons and 148468 time bins.
+
+\item Inhibitory or excitatory neurons: This is an array that stores whether a neuron is inhibitory or excitatory, namely whether it increases or decreases the level of activity in downstream neurons.
+
+\item Spatial distribution: This is an array of 2-tuples that stores the x, y coordinate of each neuron.
+
+\item Mouse behavior: This is an array of 2-tuples that stores the start and end time of each bout of reaches.
+\end{itemize}
+
+## 1.2 Complications of Dataset
+
+The dataset chosen is not without complications, however, some of these complications include:
+
+\begin{itemize}
+\item Incomplete network: Due to limitations of imaging techniques, the experiment records an incomplete network. We cannot record the complete M1 cortex, and not even all the neurons in the field of view. Hence, the recording is a small subset of neurons in the M1 cortex. 
+
+\item Upstream signal: This entire brain region receives shared upstream signals. However, we cannot measure the upstream signals.
+\end{itemize}
+
+## 1.3 Scientific Question
+
+For a target neuron, the goal is to predict its activity at each time bin using the activity of other neurons. In other words, the response variable is the activity of the target neuron. The predictor variables are the activity of the other neurons. The selected target neurons are Neuron 234, 168, and 281. The choice of selecting these three neurons comes from exploratory data analysis which showed that these three neurons had the potential to create relatively strong predictive models, making them neurons of interest and the three that we believe will provide the most interesting exploration and analysis of our data.
+
+It is known that the activity of a target neuron can be explained by the activity of other neurons and their recurrent connections through linear models (Kotekal et al., 2020). This inspired us to construct linear regression models to capture the interaction between the predicted and predictor variables. In the frequentist analysis section, we hypothesize that different neurons integrate the activities of other neurons differently. This is a plausible hypothesis because the different neurons likely form different connections with other neurons, depending on factors such as their proximity. We seek to validate this hypothesis by comparing linear models that capture different integrations and linear models that require the same integration. This hypothesis, if true, would motivate hierarchical models in our Bayesian analysis. 
+
+Due to the high computational cost, we cannot perform the complete frequentist and Bayesian analysis on all 295 excitatory neurons. Instead, we pick three neurons. Because the experiment only records an incomplete network, the selection criterion is based on the information available regarding a neuron’s upstream neurons. (See further explanation in the frequentist analysis section.)
+
+# 2. Exploratory Data Analysis
+
+For the exploratory analysis, we are interested in visualizing the neuron activity and co-activity, neuron spatial distribution, type (inhibitory or excitatory), and mouse behavior. 
+
+## 2.1 Neuron Activity:
+
+```{r figs, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs}Time Series Plot of Neuron 111's Activity"}
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+time_points = seq(0, by = 30 / 1000, length.out = 10000)
+spks_t$time = time_points
+
+ggplot(spks_t, aes(x = time, y = Neuron_234)) +
+  geom_line(size = 1) +
+  labs(title = "Time Series", x = "Time", y = "Inferred Number of Spikes") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+As an example, we visualize the spikes time series of one of our target neurons, neuron 234 (Fig. 1). At each time bin, the y-axis displays the inferred number of spikes. A common question is why the quantity is continuous rather than discrete. Recall that spikes are not directly observable from the experiment. Instead, they are inferred from the observed fluorescence values of the neurons. Hence, the inferred number of spikes results from the spikes inference algorithm. We recommend interpreting the y-axis as an artificial measure of neuron activity level, and we refer to this quantity as inferred spikes. For more details, read the frequently asked questions section of the spike inference algorithm: https://github.com/HelmchenLabSoftware/Cascade. 
+
+
+## 2.2 Neuron Types:
+
+```{r figs2, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs2}Distribution of Excitatory vs Inhibitory Neurons"}
+colnames(redlabels) = c("neuron_type")
+redlabels$neuron_type = factor(redlabels$neuron_type, levels= c(TRUE, FALSE), labels=c("Inhibitory", "Excitatory"))
+ggplot(redlabels, aes(x = neuron_type)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title= "Number of Excitatory and Inhibitory Neurons", x = "Neuron Type", y = "Number of Neurons") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Fig. 2 displays the counts of inhibitory and excitatory neurons in a barplot. Inhibitory and excitatory neurons are two types neurons, classified based on how they interact with downstream neurons. Each neuron has a membrane potential, namely the electric potential difference between the inside and outside of the cell. When a neuron's membrane potential reaches a certain threshold, it generates a spike, namely a sudden increase in action potential. This spike transmit signals to its downstream neurons and changes the action potential of the downstream neurons. Based on whether a neuron increases or decreases the action potential of its downstream neuron, the neuron is classified as excitatory or inhibitory respectively. The bar plot shows that there are many more excitatory neurons than inhibitory neurons. 
+
+## 2.3 Correlation between Neuron Spikes:
+
+```{r figs3, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs3}Heatmap of Pearson Correlation of Neuron Spikes"}
+spks_t = as.data.frame(t(spks))
+cor_matrix = cor(spks_t, use = "pairwise.complete.obs")
+diag(cor_matrix) = NA
+
+library(pheatmap)
+pheatmap(cor_matrix, 
+         color = colorRampPalette(c("blue", "white", "red"))(50),
+         main = "Pearson Correlation Heatmap",
+         treeheight_row = 0,
+         treeheight_col = 0,
+         show_rownames = FALSE,
+         show_colnames = FALSE
+)
+```
+
+In addition to single-neuron activity, we are interested in the collective dynamics of neurons. Here, we examine the co-activity between every pair of neurons, measured by Pearson correlation. The resulting matrix is a symmetric 315 by 315 matrix, where the ij-th entry is the Pearson correlation between the inferred spikes of the ith neuron and the jth neuron. Fig. 3 visualizes the Pearson correlation matrix using a heatmap. The heatmap shows that the correlation between neuron activity is low across the board. In addition, most correlations are positive, and negative correlations are small in magnitude. 
+
+## 2.4 Neuron Positions:
+
+```{r figs4, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs4}Spacial Positioning of Neurons"}
+colnames(cell_pos) = c("x", "y")
+color_pos = cbind(cell_pos, redlabels)
+color_pos$neuron_type = factor(color_pos$neuron_type, 
+                               levels = c(levels(color_pos$neuron_type), "Neuron 234", "Neuron 281", "Neuron 168"))
+color_pos$neuron_type[234] <- "Neuron 234"
+color_pos$neuron_type[168] <- "Neuron 168"
+color_pos$neuron_type[281] <- "Neuron 281"
+ggplot(color_pos, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "black", "black", "black")) +
+  labs(title="Spatial Position of Neurons", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Fig 4. displays the spatial positions of the 315 excitatory and inhibitory neurons. x, y are the coordinates of the neurons in the image. Observe that some areas have more recorded neurons than others. In addition, because of the biophysics constraints, the neurons in proximity are more likely to be connected. Therefore, we expect the neurons in proximity to be more correlated. 
+
+## 2.5 Reach Times:
+
+```{r figs5, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs5}Distribution of Bout Lengths"}
+colnames(calcium_reach_times) = c("start", "end")
+calcium_reach_times$reach_time = calcium_reach_times$end - calcium_reach_times$start
+ggplot(calcium_reach_times, aes(x=reach_time)) +
+  geom_histogram(binwidth=20) +
+  theme_minimal() +
+  labs(title= "Distribution of Bout Lengths", x = "Bout Lengths", y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+In the experiment, the mouse performs a reach-to-grasp task. Specifically, the mouse reaches for a tiny grain of rice. Given the task's difficulty, the mouse often makes several continuous attempts between rests. We call a set of continuous attempts “a bout of reaches”. Fig. 5 displays a histogram of the lengths of the bouts, given by subtracting the start time of the bout from the end time of the bout. We see that most bouts are short, but there are a few long bouts of reaches.
+
+# 3. Frequentist Analysis
+
+## 3.1 Proposed Frequentist Model(s)
+
+Our project aims to predict the inferred spikes of a target neuron using the activity of the other neurons. In the frequentist paradigm, our model of choice is linear regression. Linear models are a well-established method in computational neuroscience literature. Specifically, Kotekal et al. 2020 showed that recurrent interactions (i.e., activities of other neurons) can explain target neuron activity through a linear model.
+
+In addition to past literature, our choice of linear regression holds several other advantages. Because of its relative simplicity, it has a closed-form solution and is computationally efficient. Given our model's large number of predictors, computational complexity is an important consideration. Another advantage of simplicity is the interpretability of linear regression. We can understand how the predictors contribute to the target neuron activity and interpret the parameters as the strength of interaction between the two neurons. Given linear models' computational efficiency and interpretability, it is our model of choice. 
+
+Using linear regression, we predict the inferred spikes of a target neuron using the inferred spikes of other neurons. To measure the performance of linear regression, we use the R^2 value, which is the percent of variance explained. In neuroscience, an R^2 around 0.1 is considered a good model. 
+
+Due to the computational cost of performing the complete frequentist and Bayesian analysis for all 295 excitatory neurons, we pick 3 neurons to analyze for this project. The criterion for neuron choice is as follows: Because our data represents an incomplete network, we want to pick neurons whose upstream neurons are observable (i.e., included in the data). Otherwise, we do not have information on the predictors, and the subsequent analysis wouldn’t be meaningful. To determine the neurons with observable upstream neurons, we first perform a linear regression on all 295 neurons. We take the 3 neurons with the highest R^2 value.  Fig. 6 displays a histogram of the $R^2$ of all the neurons. 
+
+```{r figs6, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs6}Histogram of R^2 Values for Regression Models"}
+load("r_squared_list.RData")
+r_squared_vector <- unlist(r_squared_list)
+
+hist(r_squared_vector, 
+     main = "Histogram of R-squared values", 
+     xlab = "R-squared", 
+     col = "skyblue", 
+     border = "black")
+```
+
+Using this method, we pick neurons 234, 168, and 281. 
+
+For these three neurons, we consider two models for comparison. 
+
+Model 1: 
+
+$$ Y_{it} = \alpha_{i} + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta_{ij} + \varepsilon_{it} $$
+Where: 
+
+\begin{itemize}
+\item$Y_{it}$ is the inferred spikes of neuron i at time t. 
+
+\item$X_{jt}$ is the inferred spikes of neuron j at time t. 
+
+\item$\alpha_{i}$ and $\beta_{ij}$ are parameters to be fitted. 
+
+\item$\varepsilon_{it}$ is the error term for the model, $\varepsilon_{it} \sim \mathcal{N}(0, \sigma_{i}^2)$. 
+\end{itemize}
+
+Model 2: 
+
+$$ Y = \alpha + X \beta + \varepsilon$$
+
+Where:
+
+\begin{itemize}
+\item$Y$ is the time series of neurons 234, 168, and 281, concatenated vertically. It is an array of dimension ( $3 \times \text{number of time bins}$) by 1
+
+\item$X_t$ is the time series of all neurons other than neurons 234, 168, and 281, concatenated three times vertically. It is a matrix of dimension ( $3 \times \text{number of time bins}$) by (number of other neurons).
+
+\item$\alpha$ and $\tilde{\beta}$ are parameters to be fitted. 
+
+\item$\varepsilon$ is the error term for the model, where each entry follows $\mathcal{N}(0, \sigma^2)$ distribution. 
+\end{itemize}
+
+We chose these two models to compare because we want to understand if neurons integrate the activities from other neurons similarly or differently. In model 1, the coefficient for the predictors could be different across neurons 234, 168, and 281, representing different integrations of the activity of other neurons. On the other hand, model 2 requires the coefficient and integration to be the same. Based on neuroscience knowledge, we hypothesize that model 1 will have better performance, as different neurons have different connectivity with other neurons and integrate signals differently. 
+
+In reality, we do not use all the neurons as predictors. This is because later we fit a linear mixed effect model and we have to discard the columns with high colinearity. Hence, for later comparison, we also discard all the predictors with high colinearity here. 
+
+## 3.2 Fitting the Frequentist Model(s)
+
+The two frequentist models were fit by compiling the predictor neurons into matrices and solving for Beta using the following equation:
+
+$$
+\hat{\beta} = (X^T X)^{-1} (X^T y)
+$$
+
+The resulting Beta is a column vector containing the intercept value and the 312 coefficients for the predictors. The models for Neurons 234, 168, and 281 are representative of our first frequentist model, which creates 3 separate models for each Neuron that we are analyzing and trying to predict for. The concatenated model is representative of our second frequentist model, which compiles all three response variables into a single matrix and tries to predict for all of them together.
+
+Here, we display the value of the coefficients for the first few predictors in Table 1. (See full set of coefficients in Appendix.)
+
+\begin{table}[h]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \begin{tabular}{l l l l l}
+            \toprule
+            Predictor & Neuron 234 & Neuron 168 & Neuron 281 & Concatenated Model \\
+            \midrule
+            Intercept  & (0.0019820749, 0.0042973961) & (-0.0077705987, -0.0005312599) & (-0.0009465221, 0.0015422220) & (-0.0025887456, 0.0021131830) \\
+            Neuron\_3  & (-0.0000477226, -0.0000121633) & (0.0001155287, 0.0002267124) & (-0.0000541075, -0.0000158847) & (-0.0000007129, 0.0000715006) \\
+            Neuron\_4  & (-0.0000392193, 0.0000027763) & (0.0000499259, 0.0001812339) & (-0.0000493106, -0.0000041694) & (-0.0000191026, 0.0000661815) \\
+            Neuron\_5  & (-0.0000642615, 0.0000006114) & (-0.0005035074, -0.0003006687) & (-0.0000723183, -0.0000025862) & (-0.0002229934, -0.0000912502) \\
+            Neuron\_6  & (-0.0000022124, 0.0000247042) & (-0.0000079717, 0.0000761888) & (-0.0000462356, -0.0000173029) & (-0.0000228026, 0.0000318594) \\
+            Neuron\_7  & (-0.0000574232, -0.0000265640) & (-0.0000763770, 0.0000201110) & (-0.0000013821, 0.0000317886) & (-0.0000496421, 0.0000130265) \\
+            Neuron\_8  & (0.0000010607, 0.0000354907) & (0.0000456376, 0.0001532904) & (-0.0000032178, 0.0000337912) & (0.0000093820, 0.0000793022) \\
+            Neuron\_9  & (-0.0000066706, 0.0000666413) & (0.0001317571, 0.0003609820) & (-0.0000770307, 0.0000017723) & (0.0000051348, 0.0001540157) \\
+            Neuron\_11 & (-0.0000917205, -0.0000370458) & (0.0001899531, 0.0003609050) & (-0.0000242702, 0.0000344997) & (0.0000165372, 0.0001275699) \\
+            Neuron\_12 & (-0.0000337814, -0.0000135145) & (0.0000392893, 0.0001026580) & (0.0000186658, 0.0000404507) & (0.0000050491, 0.0000462069) \\
+            \bottomrule
+        \end{tabular}
+    }
+    \caption{95\% Confidence Intervals for Predictor Coefficients for Models without Interaction Terms}
+    \label{tab:ci_coefficients_updated}
+\end{table}
+
+## 3.3 Comparing the Frequentist Models
+
+After fitting the models, we conclude that model 1 is better than model 2. In other words, considering each neuron separately and predicting for each one individually is better than trying to compile the predictions into a single model. We reached this conclusion after examining the residual plot, $R^2$ values, and MSE from five-fold cross validation of each model. 
+
+**Residual plots**: Residual plots are displayed in Figure 7. None of the residual plots appear to be traditionally desirable, with all of them lacking a random spread across the x-axis and instead making similar patterns to one another. However, this does not mean the models are all bad or useless. Due to lack of certainty when making predictions in the neuroscience field, what might appear as a bad or weak model in a different statistical context is considered an acceptable model in a neuroscience context. The residual plots for our first frequentist model (the residual plots belonging to Neurons 234, 168, and 281) are slightly more desirable than the residual plot for our second frequentist model (the residual plot belonging to the Concatenated Model) as the spread across the x-axis seems to be more balanced and evenly split in our residual plots for our first frequentist models than our second. 
+
+To motivate further analysis with an added interaction term between behavior and neuron activity level, we color coded the residual plot. The red circles correspond to when the mouse is reaching and the blue dots correspond to the mouse resting. We observe that neurons tend to spike more during reaches, as the red dots are denser at higher fitted values. In addition, residual is smaller at higher fitted values and bigger at lower fitted values. This motivates us to fit separate models for different behaviors, reach or nonreach, by adding an interaction term (see section 3.4). 
+
+**\( R^2 \) values and MSE**: The adjusted $R^2$ values of our first frequentist model (0.491, 0.41, and 0.357) are better than the $R^2$ value of 0.0796 for our second frequentist model. However, comparing a model consisting of three separate models using $R^2$ can be difficult, so Figure 8 shows the results from performing five-fold cross validation on the models to find the MSE. The results in Figure 8 highlight that our first frequentist model is better than our second frequentist model.
+
+This conclusion aligns with our intuition from neuroscience: each neuron connects to the overall neural network differently and so they will each be affected uniquely by every predictor neuron. This result is further supported by comparing the coefficients between the models: the coefficients between the concatenated model and the separated models tend to differ. The numerical values of the differences between these coefficients are displayed in Figure 9. 
+
+```{r figs7, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8, fig.cap="\\label{fig:figs7}Residual Plots for Frequentist Models without Interaction Term"}
+par(mfrow=c(2, 2))
+
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+colors = ifelse(spks_t$reach == 1, rgb(1, 0, 0, alpha = 0.75), rgb(0, 0, 1, alpha = 0.25))
+
+residuals1 = residuals(model1)
+residuals2 = residuals(model2)
+residuals3 = residuals(model3)
+residuals4 = residuals(model4)
+
+fitted1 = fitted(model1)
+fitted2 = fitted(model2)
+fitted3 = fitted(model3)
+fitted4 = fitted(model4)
+
+plot(fitted1, residuals1, col = colors,
+     xlab = "Fitted Values (Neuron 234)", ylab = "Residuals (Neuron 234)", 
+     main = "Residuals Plot for Neuron 234")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted2, residuals2, col = colors,
+     xlab = "Fitted Values (Neuron 168)", ylab = "Residuals (Neuron 168)", 
+     main = "Residuals Plot for Neuron 168")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted3, residuals3, col = colors,
+     xlab = "Fitted Values (Neuron 281)", ylab = "Residuals (Neuron 281)", 
+     main = "Residuals Plot for Neuron 281")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted4, residuals4, col = colors,
+     xlab = "Fitted Values (Concatenated Model)", ylab = "Residuals (Concatenated Model)", 
+     main = "Residuals Plot for Concatenated Model")
+abline(h = 0, col = "black", lwd = 2)
+
+par(mfrow=c(1,1))
+```
+
+```{r figs8, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.cap="\\label{fig:figs8}Violin Plot of Five-Fold CV MSEs for Frequentist Models without Interaction Term"}
+set.seed(123)
+
+mse_results <- mse_results %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+
+first_mse <- mse_results %>% filter(Model %in% c("Neuron 234", "Neuron 168", "Neuron 281", "Concatenated"))
+
+ggplot(first_mse, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Frequentist Models without Reach and Interaction Terms",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r figs9, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.cap="\\label{fig:figs9}Histogram of Difference in Coefficients between Frequentist Models"}
+beta = coef(model4)
+beta1 = coef(model1)
+beta2 = coef(model2)
+beta3 = coef(model3)
+beta1dif = beta - beta1
+beta2dif = beta - beta2
+beta3dif = beta - beta3
+par(mfrow=c(3,1))
+hist(beta1dif, 
+     main = "Difference between Neuron 234 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta2dif, 
+     main = "Difference between Neuron 168 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta3dif, 
+     main = "Difference between Neuron 281 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+par(mfrow=c(1,1))
+```
+
+## 3.4 Frequentist Model with Behavior and Interaction Terms
+
+Our previous analysis suggested that we should fit separate models for different behaviors (i.e. reach and nonreach). We achieve this through adding a behavior term and an interaction term. 
+
+Model with Behavior and Interaction Terms:
+
+Model 1: 
+
+$$ Y_{it} = \alpha_{i} + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta_{ij} + \gamma_i Z_t + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} Z_t \delta_{ij} + \varepsilon_{it} $$
+
+Where: 
+
+\begin{itemize}
+\item$Y_{it}$ is the inferred spikes of neuron i at time t. 
+
+\item$X_{jt}$ is the inferred spikes of neuron j at time t. 
+
+\item$Z_t$ is the mouse behavior at time t. $Z_t = 1$ indicates that the mouse is reaching.
+
+\item$\alpha_{i}$, $\gamma_i$, $\beta_{ij}$ and $\gamma_{ij}$ are parameters to be fitted. 
+
+\item$\varepsilon_{it}$ is the error term for the model, $\varepsilon_{it} \sim \mathcal{N}(0, \sigma_{i}^2)$. 
+\end{itemize}
+
+Model 2: 
+
+$$ Y =\alpha + X \beta + \gamma Z + \delta X \odot Z + \varepsilon$$
+
+Where:
+
+\begin{itemize}
+\item$Y$ is the time series of neurons 234, 168, and 281, concatenated vertically. It is an array of dimension ( $3 \times \text{number of time bins}$) by 1
+
+\item$X_t$ is the time series of all neurons other than neurons 234, 168, and 281, concatenated three times vertically. It is a matrix of dimension ( $3 \times \text{number of time bins}$) by (number of other neurons).
+
+\item$Z$ is a vector of length (number of time bins). Each entry indicates whether the mouse is reaching. $\odot$ indicates element-wise multiplication onto the rows of X.
+
+\item$\alpha$, $\beta$, $\gamma$ and $\delta$ are parameters to be fitted. 
+
+\item$\varepsilon$ is the error term for the model, where each entry follows $\mathcal{N}(0, \sigma^2)$ distribution. 
+\end{itemize}
+
+Conclusion: 
+
+Figure 10 compares the MSE with and without the interaction terms. We observe that adding the interaction term slightly improved the models. This aligns with our hypothesis that considering behavior would improve the prediction. We also display the residual plots and the difference between the coefficients in Figure 11 and Figure 12. The observations are similar to the previous observations in section 3.3.
+
+```{r figs10, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.cap="\\label{fig:figs10}Violin Plot of Five-Fold CV MSEs for Frequentist Models"}
+set.seed(123)  # For reproducibility
+
+mse_results <- mse_results %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+
+first_mse <- mse_results %>% filter(Model %in% c("Neuron 234", "Neuron 168", "Neuron 281", "Concatenated", "Neuron 234 w/ Int.", "Neuron 168 w/ Int.", "Neuron 281 w/ Int.", "Concatenated w/ Int."))
+
+ggplot(first_mse, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Frequentist Models without Reach and Interaction Terms",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r figs11, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8, fig.cap="\\label{fig:figs11}Residual Plots for Frequentist Models with Interaction Term"}
+par(mfrow=c(2, 2))
+
+colors = ifelse(spks_t$reach == 1, rgb(1, 0, 0, alpha = 0.75), rgb(0, 0, 1, alpha = 0.25))
+
+residuals1_int = residuals(model1_int)
+residuals2_int = residuals(model2_int)
+residuals3_int = residuals(model3_int)
+residuals4_int = residuals(model4_int)
+
+fitted1_int = fitted(model1_int)
+fitted2_int = fitted(model2_int)
+fitted3_int = fitted(model3_int)
+fitted4_int = fitted(model4_int)
+
+plot(fitted1_int, residuals1_int, col = colors,
+     xlab = "Fitted Values (Neuron 234)", ylab = "Residuals (Neuron 234)", 
+     main = "Residuals Plot for Neuron 234 with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted2_int, residuals2_int, col = colors,
+     xlab = "Fitted Values (Neuron 168)", ylab = "Residuals (Neuron 168 w/ Interaction Term)", 
+     main = "Residuals Plot for Neuron 168 with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted3_int, residuals3_int, col = colors,
+     xlab = "Fitted Values (Neuron 281)", ylab = "Residuals (Neuron 281)", 
+     main = "Residuals Plot for Neuron 281 with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted4_int, residuals4_int, col = colors,
+     xlab = "Fitted Values (Concatenated Model)", ylab = "Residuals (Concatenated Model)", 
+     main = "Residuals Plot for Concatenated Model with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+par(mfrow=c(1,1))
+```
+
+```{r figs12, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.cap="\\label{fig:figs12}Histogram of Difference in Coefficients between Frequentist Models with Interaction Terms"}
+beta_int = coef(model4_int)
+beta1_int = coef(model1_int)
+beta2_int = coef(model2_int)
+beta3_int = coef(model3_int)
+beta1dif_int = beta_int - beta1_int
+beta2dif_int = beta_int - beta2_int
+beta3dif_int = beta_int - beta3_int
+par(mfrow=c(3,1))
+hist(beta1dif_int, 
+     main = "Difference between Neuron 234 and Concatenated Model with Interaction Terms", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta2dif_int, 
+     main = "Difference between Neuron 168 and Concatenated Model with Interaction Terms", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta3dif_int, 
+     main = "Difference between Neuron 281 and Concatenated Model with Interaction Terms", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+par(mfrow=c(1,1))
+```
+\clearpage
+
+
+## 3.5 Frequentist Linear Mixed Effects Model
+
+In previous models, we fitted separate models for different neurons. Yet, neuron responses are often correlated, so we would like to capture both population-level effects and neuron-level effects. Therefore, we fit a linear mixed effects model in this section. The model is formulated as follows: 
+
+$$
+Y_{it} = \alpha + u_i + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} (\beta + v_{ij}) + (\gamma + w_i) Z_t + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} Z_t (\delta + r_{ij}) + \varepsilon_{it}
+$$
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2), \quad
+v_{ij} \sim \mathcal{N}(0, \sigma_v^2), \quad
+w_i \sim \mathcal{N}(0, \sigma_w^2), \quad
+r_{ij} \sim \mathcal{N}(0, \sigma_r^2), \quad
+\varepsilon_{it} \sim \mathcal{N}(0, \sigma^2)
+$$
+Where: 
+
+\begin{itemize}
+
+\item $\alpha$ is the fixed intercept across all neurons. 
+
+\item $u_i \sim \mathcal{N}(0, \sigma_{u}^2)$ is the random deviation for neuron i, indicating neuron-level heterogeneity. 
+
+\item $\beta$ is the fixed slope across all neurons. 
+
+\item $v_{ij} \sim \mathcal{N}(0, \sigma_{v}^2)$ captures random slope for each neuron. 
+
+\item $\gamma$ is the fixed behaviorial effect across all neurons. 
+
+\item $w_i \sim \mathcal{N}(0, \sigma_{w}^2)$ is the random effect of behavior for each neuron.
+
+\item $\delta$ is the fixed effect of interaction term. 
+
+\item $r_{ij} \sim \mathcal{N}(0, \sigma_{r}^2)$ is the random effect of interaction term. 
+
+\item $\varepsilon_{it} \sim \mathcal{N} (0, sigma^2)$ models the noise.
+
+\end{itemize}
+
+However, due to the computational constraint, we could only model the random effects of the intercepts and the reach term. Hence, the model we implemented is as follows:
+
+$$
+Y_{it} = \alpha + u_i + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} \beta + (\gamma + w_i) Z_t + \sum_{j=1, j \notin\{234, 168, 281\}}^{315} X_{jt} Z_t \delta + \varepsilon_{it}
+$$
+
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2), \varepsilon_{it} \sim \mathcal{N}(0, \sigma^2)
+$$
+The parameters we are fitting are $\alpha$, $\sigma_u$, $\beta$, $\gamma$, $\delta$, and $\sigma$. 
+
+### Results:
+
+Table 2 displays the 95% confidence interval for the intercept and slope for each neuron.
+
+\begin{table}[h]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \begin{tabular}{l l l l l l}
+            \toprule
+            Predictor & Neuron 234 & Neuron 168 & Neuron 281 & Concatenated Model & Linear Mixed Effects Model \\
+            \midrule
+            Intercept & (0.0021583739895, 0.004471207307) & (-0.01063487569, -0.003543537845) & (-0.001066063085, 0.0014223170948) & (-0.0036737543079, 0.001276228231) & (-0.065692799, 0.1455247155) \\
+            Neuron\_3 & (-0.0000780009480, -0.000031094434) & (-0.00007737601, 0.000066443228) & (-0.000057490714, -0.0000070239391) & (-0.0000809523722, 0.000019438098) & (-0.039520983, -0.0022942587) \\
+            Neuron\_4 & (-0.0000771287406, -0.000032103193) & (0.00004983924, 0.000187891285) & (-0.000043561090, 0.0000048819516) & (-0.0000332124807, 0.000063152299) & (-0.042981567, -0.0006984383) \\
+            Neuron\_5 & (-0.0000511415859, 0.000012723366) & (-0.00048650617, -0.000290690954) & (-0.000066471120, 0.0000022412593) & (-0.0002149835349, -0.000078298199) & (-0.089987366, -0.0322766238) \\
+            Neuron\_6 & (0.0000094065782, 0.000036206673) & (-0.00004731870, 0.000034852600) & (-0.000048115324, -0.0000192810697) & (-0.0000343873172, 0.000022970902) & (-0.046223033, 0.0341552136) \\
+            Neuron\_7 & (-0.0000534134398, -0.000017292806) & (-0.00006293211, 0.000047816738) & (0.000009431073, 0.0000482933072) & (-0.0000433360051, 0.000033970261) & (-0.023125219, 0.0159889453) \\
+            Neuron\_8 & (-0.0000201501730, 0.000015912228) & (0.00003237543, 0.000142945727) & (0.000005235175, 0.0000440347566) & (-0.0000018652937, 0.000075316341) & (-0.010583735, 0.0429009227) \\
+            Neuron\_9 & (0.0000186736986, 0.000098028082) & (0.00014532872, 0.000388635806) & (-0.000053085999, 0.0000322914790) & (0.0000200605323, 0.000189896729) & (-0.003580357, 0.0558150235) \\
+            Neuron\_11 & (-0.0000577119732, 0.000010887332) & (0.00021347274, 0.000423803874) & (-0.000032775416, 0.0000410306597) & (0.0000263755795, 0.000173193493) & (0.003592414, 0.0369334518) \\
+            Neuron\_12 & (-0.0000350784826, -0.000014753609) & (0.00002591826, 0.000088236004) & (0.000021802847, 0.0000436704030) & (-0.0000001173250, 0.000043382467) & (0.002110504, 0.0493843480) \\
+            \bottomrule
+        \end{tabular}
+    }
+    \caption{95\% Confidence Intervals for Predictor Coefficients for Models with Interaction Terms and Linear Mixed Effects Model}
+    \label{tab:ci_coefficients_int_lme}
+\end{table}
+
+After performing five-fold cross validation, Figure 13 showed that the linear mixed effect model has a higher MSE than all other frequentist models, except for the Concatenated Model without reach and interaction terms which it performed similarly to. This is likely because we could only take into account the random effect on the intercept and reach term, due to computational constraints. Additionally, the complexity of a neural network in combination with this data only being for a partial network might have caused the lme model to choose inaccurate random effects that actually decreased model performance.
+
+```{r figs13, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.cap="\\label{fig:figs13}Violin Plot of Five-Fold CV MSEs for Frequentist Models"}
+set.seed(123)  # For reproducibility
+
+mse_results <- mse_results %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+
+ggplot(mse_results, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Frequentist Models without Reach and Interaction Terms",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Figure 14 displays the residual plot for the lme model. Compared to our previous two concatenated models, the residual plot for the lme model is more desirable and more similar to the residual plots for our separated models, showing the promise of using a hierarchical model when trying to create a single concatenated model for prediction.
+
+```{r figs14, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs14}Residual Plot for Frequentist Linear Mixed Effects Model"}
+res = residuals(modellme)
+fit = fitted(modellme)
+
+plot(fit, res, col = colors,
+     xlab = "Fitted Values (Linear Mixed Effects)", ylab = "Residuals (Linear Mixed Effects)", 
+     main = "Residuals Plot for Linear Mixed Effects")
+abline(h = 0, col = "black", lwd = 2)
+```
+
+In conclusion, for the lme model, we observe higher MSE, but less pattern in the residual plot. Hence, lme model could be a better fit, despite the higher MSE. 
+
+\clearpage
+
+# 4. Bayesian Analysis
+
+In this section, we fit a Bayesian model to predict neuron activity. This allows us to account for both population-level information and neuron-level heterogeneity, as well as to incorporate prior information.
+
+## 4.1 Proposed Bayesian Model(s)
+
+We propose to model the neuron activity using a Bayesian linear regression model. This is because in our previous frequentist analysis, we observed both correlation across neuron population, but also heterogeneity for individual neurons. A Bayesian linear regression model is able to capture the pattern at both the population and individual level. 
+
+The model is formulated as follows: 
+
+$$
+Y_{it} \sim \mathcal{N}(\mu_{it}, \sigma^2)
+$$
+
+$$
+\mu_{it} = \alpha + u_i + \sum_{j=1}^{p} X_{jt} \beta_j + \gamma Z_t + \sum_{j=1}^{p} X_{jt} Z_t \delta_j
+$$
+Random effects:
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2)
+$$
+Fixed effect: 
+$$
+\beta_j \propto 1, \delta_j \propto 1, \gamma \propto 1, \sigma_u \sim t(3, 0, 2.5), \sigma \sim t(3, 0, 2.5)
+$$
+
+We chose these priors because they are the default of the brms package.
+
+## 4.2 Fitting the Bayesian model(s)
+
+We fit the model by running MCMC chains, with 2 chains, 3000 iterations and 1000 iterations as warm up. 
+
+### Results:
+
+Table 5 displays the 95% confidence interval for the coefficients $\beta_j$ and the random effects $u_i$. 
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l l}
+        \toprule
+        Predictor & 95\% CI for Coefficients \\
+        \midrule
+        Intercept  & (-0.148673559857, 0.00657385172) \\
+        Neuron\_3  & (0.000218055761, 0.00065348163) \\
+        Neuron\_4  & (-0.000207981754, 0.00024537492) \\
+        Neuron\_5  & (-0.000381059900, 0.00005506620) \\
+        Neuron\_6  & (-0.000378376119, -0.00004816019) \\
+        Neuron\_7  & (-0.000121158162, 0.00023930122) \\
+        Neuron\_8  & (-0.000169068717, 0.00031157171) \\
+        Neuron\_9  & (-0.000262885197, 0.00028710419) \\
+        Neuron\_11 & (-0.000181801996, 0.00022621337) \\
+        Neuron\_12 & (-0.000209360478, 0.00007161157) \\
+        \midrule
+        \textbf{Random Effects} & \\
+        Neuron\_168 & (0.0687925, 0.0694668) \\
+        Neuron\_234 & (0.0690860, 0.0694672) \\
+        Neuron\_281 & (0.0691905, 0.0694670) \\
+        \bottomrule
+    \end{tabular}
+    \caption{95\% Confidence Intervals for Coefficients and Random Effects in the Bayesian Hierarchical Model}
+    \label{tab:bayesian_model_ci_random}
+\end{table}
+
+We check convergence by examining the Rhat Value (Table 6). The MCMC simulation converged for the slopes, indicated by a Rhat value close to 1, but not the intercept. 
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l l}
+        \toprule
+        Parameter & Rhat Value \\
+        \midrule
+        Intercept  & 1.9036 \\
+         Neuron\_3  & 1.0004 \\
+        Neuron\_4  & 0.9999 \\
+        Neuron\_5  & 1.0002 \\
+        Neuron\_6  & 0.9997 \\
+        Neuron\_7  & 1.0008 \\
+        Neuron\_8  & 1.0015 \\
+        Neuron\_9  & 1.0002 \\
+        Neuron\_11 & 1.0006 \\
+        Neuron\_12 & 1.0001 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Rhat Values for Model Parameters (MCMC Convergence Diagnostics)}
+    \label{tab:rhat_values}
+\end{table}
+
+To do: Sensitivity analysis
+
+\clearpage
+
+## 4.3 Prediction
+
+To make posterior predictions, we sample 10000 points from the data and use the predict function in the brms package to generate prediction. The comparison between predicted data and actual data is displayed in figure 11.
+
+```{r, echo=FALSE}
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+
+neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+
+X1_df = as.data.frame(X_combined)
+Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+X1_df$Y = Y_combined
+X1_df$reach = c(spks_t$reach, spks_t$reach, spks_t$reach)
+X1_df = as.data.frame(scale(X1_df))
+X1_df$neuron = neuron_labels
+```
+
+```{r figs15, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs15}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model"}
+set.seed(12345)
+sample_indices = sample(nrow(X1_df), 10000)
+
+sample_df = X1_df[sample_indices, ]
+predicted_vals = predict(brmodel2, newdata = sample_df)
+actual_vals = sample_df$Y
+
+ggplot(data = data.frame(actual_vals, predicted_vals = predicted_vals[, "Estimate"]),
+       aes(x = actual_vals, y = predicted_vals)) +
+  geom_point(alpha = 0.5) +  
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  
+  labs(title = "Actual vs. Predicted", x = "Actual Y", y = "Predicted Y") +
+  theme_minimal()
+```
+
+```{r}
+df <- data.frame(actual_vals, predicted_vals[, "Estimate"])
+
+df <- df %>% rename(predicted_vals = colnames(df)[2])
+
+mean_pred <- mean(df$predicted_vals, na.rm = TRUE)
+sd_pred <- sd(df$predicted_vals, na.rm = TRUE)
+
+lower_bound <- mean_pred - 3 * sd_pred
+upper_bound <- mean_pred + 3 * sd_pred
+
+df_clean <- df[df$predicted_vals >= lower_bound & df$predicted_vals <= upper_bound, ]
+
+ggplot(df_clean, aes(x = actual_vals, y = predicted_vals)) +
+  geom_point(alpha = 0.5) +  
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  
+  labs(title = "Actual vs. Predicted (Without Outliers)", x = "Actual Y", y = "Predicted Y") +
+  theme_minimal()
+```
+
+\clearpage
+
+# 5. Discussion
+
+```{r}
+library(gridExtra)
+load("network.RData")
+grid.arrange(network234, network168, network281, ncol = 2)
+```
+
+In this section, discuss how you can improve your model.
+
+# 6. Contributions
+
+In this section, discuss the percentage of your contributions to the development final project proposal. Report the number of hours you have worked on the proposal, and the sections you are involved.
+
+Please also discuss briefly the contributions of your teammate(s), as well as the help and support you got from your teammates(s).
+
+# References
+
+# Appendix
+
+R code for Exploratory Data Analysis graphs:
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Neuron 234 Time Series Plot
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+time_points = seq(0, by = 30 / 1000, length.out = 148468)
+spks_t$time = time_points
+
+ggplot(spks_t, aes(x = time, y = Neuron_234)) +
+  geom_line(size = 1) +
+  labs(title = "Time Series", x = "Time", y = "Neuron 234") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Neuron Type Distribution
+colnames(redlabels) = c("neuron_type")
+redlabels$neuron_type = factor(redlabels$neuron_type, levels= c(TRUE, FALSE), labels=c("Inhibitory", "Excitatory"))
+ggplot(redlabels, aes(x = neuron_type)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title= "Number of Excitatory and Inhibitory Neurons", x = "Neuron Type", y = "Number of Neurons") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Pearson Correlation Heatmap
+spks_t = as.data.frame(t(spks))
+cor_matrix = cor(spks_t, use = "pairwise.complete.obs")
+diag(cor_matrix) = NA
+
+library(pheatmap)
+pheatmap(cor_matrix, 
+         color = colorRampPalette(c("blue", "white", "red"))(50),
+         main = "Pearson Correlation Heatmap",
+         treeheight_row = 0,
+         treeheight_col = 0,
+         show_rownames = FALSE,
+         show_colnames = FALSE
+)
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Spatial Position Plot
+colnames(cell_pos) = c("x", "y")
+color_pos = cbind(cell_pos, redlabels)
+ggplot(color_pos, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title="Spatial Position of Neurons", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Distribution of Reach Times
+colnames(calcium_reach_times) = c("start", "end")
+calcium_reach_times$reach_time = calcium_reach_times$end - calcium_reach_times$start
+ggplot(calcium_reach_times, aes(x=reach_time)) +
+  geom_histogram(binwidth=20) +
+  theme_minimal() +
+  labs(title= "Distribution of Reach Times", x = "Reach Time", y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Histogram of R^2 Values
+load("r_squared_list.RData")
+r_squared_vector <- unlist(r_squared_list)
+
+hist(r_squared_vector, 
+     main = "Histogram of R-squared values", 
+     xlab = "R-squared", 
+     col = "skyblue", 
+     border = "black")
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Create 4 Frequentist Models without Interaction Terms
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+
+X = as.matrix(spks_t[, predictor_neurons])
+
+X_filter = X[, !(colnames(X) %in% high_vif)]
+
+Y1 = spks_t[, "Neuron_234"]
+model1 = lm(Y1 ~ X_filter)
+
+Y2 = spks_t[, "Neuron_168"]
+model2 = lm(Y2 ~ X_filter)
+
+Y3 = spks_t[, "Neuron_281"]
+model3 = lm(Y3 ~ X_filter)
+
+Y = c(Y1, Y2, Y3)
+X3 = rbind(X_filter, X_filter, X_filter)
+model4 = lm(Y ~ X3)
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Residual Plots for 4 Frequentist Models without Interaction Terms
+par(mfrow=c(2, 2))
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+colors = ifelse(spks_t$reach == 1, rgb(1, 0, 0, alpha = 0.75), rgb(0, 0, 1, alpha = 0.25))
+
+residuals1 = residuals(model1)
+residuals2 = residuals(model2)
+residuals3 = residuals(model3)
+residuals4 = residuals(model4)
+
+fitted1 = fitted(model1)
+fitted2 = fitted(model2)
+fitted3 = fitted(model3)
+fitted4 = fitted(model4)
+
+plot(fitted1, residuals1, col = colors,
+     xlab = "Fitted Values (Neuron 234)", ylab = "Residuals (Neuron 234)", 
+     main = "Residuals Plot for Neuron 234")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted2, residuals2, col = colors,
+     xlab = "Fitted Values (Neuron 168)", ylab = "Residuals (Neuron 168)", 
+     main = "Residuals Plot for Neuron 168")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted3, residuals3, col = colors,
+     xlab = "Fitted Values (Neuron 281)", ylab = "Residuals (Neuron 281)", 
+     main = "Residuals Plot for Neuron 281")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted4, residuals4, col = colors,
+     xlab = "Fitted Values (Concatenated Model)", ylab = "Residuals (Concatenated Model)", 
+     main = "Residuals Plot for Concatenated Model")
+abline(h = 0, col = "black", lwd = 2)
+
+par(mfrow=c(1,1))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Histograms showing difference between coefficients for 4 Models without Interaction Terms
+beta = coef(model4)
+beta1 = coef(model1)
+beta2 = coef(model2)
+beta3 = coef(model3)
+beta1dif = beta - beta1
+beta2dif = beta - beta2
+beta3dif = beta - beta3
+par(mfrow=c(3,1))
+hist(beta1dif, 
+     main = "Difference between Neuron 234 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta2dif, 
+     main = "Difference between Neuron 168 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta3dif, 
+     main = "Difference between Neuron 281 and Concatenated Model", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+par(mfrow=c(1,1))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Create 4 Frequentist Models with Interaction Terms
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+Y1_int = spks_t$Neuron_234
+
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+
+model1_int = lm(Y1_int ~ X_int_filter)
+
+Y2_int = spks_t$Neuron_168
+
+model2_int = lm(Y2_int ~ X_int_filter)
+
+Y3_int = spks_t$Neuron_281
+
+model3_int = lm(Y3_int ~ X_int_filter)
+
+Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+
+model4_int = lm(Y_combined ~ X_combined)
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Residual Plots for 4 Frequentist Models without Interaction Terms
+par(mfrow=c(2, 2))
+
+colors = ifelse(spks_t$reach == 1, rgb(1, 0, 0, alpha = 0.75), rgb(0, 0, 1, alpha = 0.25))
+
+residuals1_int = residuals(model1_int)
+residuals2_int = residuals(model2_int)
+residuals3_int = residuals(model3_int)
+residuals4_int = residuals(model4_int)
+
+fitted1_int = fitted(model1_int)
+fitted2_int = fitted(model2_int)
+fitted3_int = fitted(model3_int)
+fitted4_int = fitted(model4_int)
+
+plot(fitted1_int, residuals1_int, col = colors,
+     xlab = "Fitted Values (Neuron 234)", ylab = "Residuals (Neuron 234)", 
+     main = "Residuals Plot for Neuron 234 with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted2_int, residuals2_int, col = colors,
+     xlab = "Fitted Values (Neuron 168)", ylab = "Residuals (Neuron 168 w/ Interaction Term)", 
+     main = "Residuals Plot for Neuron 168 with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted3_int, residuals3_int, col = colors,
+     xlab = "Fitted Values (Neuron 281)", ylab = "Residuals (Neuron 281)", 
+     main = "Residuals Plot for Neuron 281 with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+plot(fitted4_int, residuals4_int, col = colors,
+     xlab = "Fitted Values (Concatenated Model)", ylab = "Residuals (Concatenated Model)", 
+     main = "Residuals Plot for Concatenated Model with Interaction Term")
+abline(h = 0, col = "black", lwd = 2)
+
+par(mfrow=c(1,1))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Histograms showing difference between coefficients for 4 Models without Interaction Terms
+beta_int = coef(model4_int)
+beta1_int = coef(model1_int)
+beta2_int = coef(model2_int)
+beta3_int = coef(model3_int)
+beta1dif_int = beta_int - beta1_int
+beta2dif_int = beta_int - beta2_int
+beta3dif_int = beta_int - beta3_int
+par(mfrow=c(3,1))
+hist(beta1dif_int, 
+     main = "Difference between Neuron 234 and Concatenated Model with Interaction Terms", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta2dif_int, 
+     main = "Difference between Neuron 168 and Concatenated Model with Interaction Terms", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+
+hist(beta3dif_int, 
+     main = "Difference between Neuron 281 and Concatenated Model with Interaction Terms", 
+     xlab = "Difference in Coefficient", 
+     col = "skyblue", 
+     border = "black")
+par(mfrow=c(1,1))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Create Linear Mixed Effects Model
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+spks_t = as.data.frame(scale(spks_t))
+
+neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+Y1_int = spks_t$Neuron_234
+
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+
+X1_df = as.data.frame(X_combined)
+X1_df$Y = Y_combined
+X1_df$neuron = neuron_labels
+X1_df$reach = c(spks_t$reach, spks_t$reach, spks_t$reach)
+
+random_formula <- "(1 + reach | neuron)"
+
+fixed_formula <- "Y ~ . - neuron +"
+
+full_formula <- as.formula(paste(fixed_formula, random_formula))
+
+modellme <- lmer(full_formula, data = X1_df)
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Residual Plots for Linear Mixed Effects Model
+res = residuals(modellme)
+fit = fitted(modellme)
+
+colors = ifelse(X1_df$reach == 1, rgb(1, 0, 0, alpha = 0.75), rgb(0, 0, 1, alpha = 0.25))
+
+plot(fit, res, col = colors,
+     xlab = "Fitted Values (Linear Mixed Effects)", ylab = "Residuals (Linear Mixed Effects)", 
+     main = "Residuals Plot for Linear Mixed Effects")
+abline(h = 0, col = "black", lwd = 2)
+```
+
+```{r}
+#Five-fold CV for MSE calculation
+library(caret)
+library(lme4)
+set.seed(1)
+
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+load("high_vif.RData")
+high_vif <- setdiff(high_vif, "reach")
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+spks_t = as.data.frame(spks_t)
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+
+k = 5
+folds = createFolds(spks_t$Neuron_234, k = k, list = TRUE)
+
+compute_mse = function(model, test_data, test_Y) {
+  preds = predict(model, newdata = test_data, allow.new.levels = TRUE)
+  mean((test_Y - preds)^2)
+}
+
+mse_results = data.frame(Model = character(), Fold = integer(), MSE = numeric())
+
+for (i in 1:k) {
+  print("iter")
+  test_idx = folds[[i]]
+  train_idx = setdiff(1:nrow(spks_t), test_idx)
+  
+  train_data = as.data.frame(X_int[train_idx, ])
+  test_data = as.data.frame(X_int[test_idx, ])
+  
+  Y1 = spks_t$Neuron_234[train_idx]
+  Y2 = spks_t$Neuron_168[train_idx]
+  Y3 = spks_t$Neuron_281[train_idx]
+  Y4 = c(Y1, Y2, Y3)
+  
+  X_noint = train_data[, predictor_neurons]
+  X_wint = model.matrix(~ . * reach, data = train_data[, c(predictor_neurons, "reach")])
+  X_wint <- X_wint[, !(colnames(X_wint) == "(Intercept)")]
+
+  X_comb = rbind(X_wint, X_wint, X_wint)
+  X_combnoint = rbind(X_noint, X_noint, X_noint)
+
+  X_noint_df <- as.data.frame(X_noint)
+  X_wint_df <- as.data.frame(X_wint)
+  X_combnoint_df <- as.data.frame(X_combnoint)
+  X_comb_df <- as.data.frame(X_comb)
+
+  colnames(X_noint_df) <- predictor_neurons
+  colnames(X_wint_df) <- colnames(X_wint)
+  colnames(X_combnoint_df) <- predictor_neurons
+  colnames(X_comb_df) <- colnames(X_wint)
+
+  X_noint_df <- X_noint_df[, !(colnames(X_noint_df) %in% high_vif)]
+  X_combnoint_df <- X_combnoint_df[, !(colnames(X_combnoint_df) %in% high_vif)]
+  X_wint_df <- X_wint_df[, !(colnames(X_wint_df) %in% high_vif)]
+  X_comb_df <- X_comb_df[, !(colnames(X_wint_df) %in% high_vif)]
+
+  train_data1 <- cbind(Y1 = Y1, X_noint_df)
+  train_data2 <- cbind(Y2 = Y2, X_noint_df)
+  train_data3 <- cbind(Y3 = Y3, X_noint_df)
+  train_data4 <- cbind(Y4 = Y4, X_combnoint_df)
+
+  train_data1_int <- cbind(Y1 = Y1, X_wint_df)
+  train_data2_int <- cbind(Y2 = Y2, X_wint_df)
+  train_data3_int <- cbind(Y3 = Y3, X_wint_df)
+  train_data4_int <- cbind(Y4 = Y4, X_comb_df)
+
+  msemodel1 <- lm(Y1 ~ ., data = train_data1)
+  msemodel2 <- lm(Y2 ~ ., data = train_data2)
+  msemodel3 <- lm(Y3 ~ ., data = train_data3)
+  msemodel4 <- lm(Y4 ~ ., data = train_data4)
+
+  msemodel1_int <- lm(Y1 ~ ., data = train_data1_int)
+  msemodel2_int <- lm(Y2 ~ ., data = train_data2_int)
+  msemodel3_int <- lm(Y3 ~ ., data = train_data3_int)
+  msemodel4_int <- lm(Y4 ~ ., data = train_data4_int)
+
+  neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(X_comb_df) / 3)
+  X_comb_df$neuron = neuron_labels
+  X_comb_df$neuron = as.factor(X_comb_df$neuron)
+
+  msemodellme = lmer(Y4 ~ . - neuron + (1 + reach | neuron), data = X_comb_df)
+
+  test_Y1 = spks_t$Neuron_234[test_idx]
+  test_Y2 = spks_t$Neuron_168[test_idx]
+  test_Y3 = spks_t$Neuron_281[test_idx]
+  test_Y4 = c(test_Y1, test_Y2, test_Y3)
+
+  mse1kf <- compute_mse(msemodel1, test_data, test_Y1)
+  mse2kf <- compute_mse(msemodel2, test_data, test_Y2)
+  mse3kf <- compute_mse(msemodel3, test_data, test_Y3)
+  mse4kf <- compute_mse(msemodel4, test_data, test_Y4)
+
+  mse5kf <- compute_mse(msemodel1_int, test_data, test_Y1)
+  mse6kf <- compute_mse(msemodel2_int, test_data, test_Y2)
+  mse7kf <- compute_mse(msemodel3_int, test_data, test_Y3)
+  mse8kf <- compute_mse(msemodel4_int, test_data, test_Y4)
+
+  neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), length.out = nrow(test_data))
+  test_data$neuron = neuron_labels
+  test_data$neuron= as.factor(test_data$neuron)
+  test_data <- test_data[, colnames(X_comb_df), drop = FALSE]
+
+  mse9kf = compute_mse(msemodellme, test_data, test_Y4)
+
+  mse_results = rbind(mse_results, data.frame(
+    Model = rep(c("LM1", "LM2", "LM3", "LM4", "LM5", "LM6", "LM7", "LM8", "LM9"), each = 1),
+    Fold = i,
+    MSE = c(mse1kf, mse2kf, mse3kf, mse4kf, mse5kf, mse6kf, mse7kf, mse8kf, mse9kf)
+  ))
+}
+
+summary_mse <- mse_results %>%
+  group_by(Model) %>%
+  summarize(Mean_MSE = mean(MSE), SD_MSE = sd(MSE))
+
+print(summary_mse)
+```
+
+```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#Implementation of Bayesian models with 10000 data points
+load("high_vif.RData")
+spks <- (spks - mean(spks)) / sd(spks)
+spks_t = as.data.frame(t(spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
+
+spks_t = spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int = X_int[, -1]
+X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
+X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+
+neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+
+X1_df = as.data.frame(X_combined)
+Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+X1_df$Y = Y_combined
+X1_df$neuron = neuron_labels
+
+X1_df = X1_df %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+# mixed effect on intercept, default prior
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
+
+brmodel1 <- brm(formula = formula_str, 
+             data = X1_df, 
+             warmup = 1000, iter = 3000, 
+             cores = 4, chains = 2, seed = 123)
+save(brmodel1, file = "brmodel1_314.RData")
+
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | reach) + (1 | neuron)")
+
+# mixed effect on reach and intercept, default prior
+brmodel5 <- brm(formula = formula_str, 
+             data = X1_df, 
+             warmup = 1000, iter = 3000, 
+             cores = 4, chains = 2, seed = 123)
+
+save(brmodel5, file = "brmodel5_314.RData")
+```
+
+```{r}
+#Optimized implementation of Bayesian models (did not work and will not be included in final report)
+# Load required libraries
+library(brms)
+library(dplyr)
+library(caret)  # For VIF calculation
+
+# Load data
+load("high_vif.RData")
+
+# Standardize predictors (spks)
+spks <- scale(spks)  # Standardizes to mean=0, sd=1
+spks_t <- as.data.frame(t(spks))
+
+neurons <- paste("Neuron", 1:315, sep = "_")
+colnames(spks_t) <- neurons
+
+# Define response and predictor neurons
+response_neurons <- c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons <- setdiff(neurons, response_neurons)
+
+# Identify reach times and add reach column
+spks_t <- spks_t %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+# Construct interaction terms
+X_int <- model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
+X_int <- X_int[, -1]  # Remove intercept
+
+# Remove high VIF predictors
+library(car)
+
+calc_vif <- function(predictors_df, response) {
+    df <- cbind(Y = response, predictors_df)  # Combine Y and predictors
+    vif_values <- vif(lm(Y ~ ., data = df))  # Compute VIF
+    return(names(vif_values[vif_values > 5]))  # Remove predictors with VIF > 5
+}
+
+# Ensure Y is correctly defined
+Y_combined <- c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+
+# Compute high VIF predictors
+high_vif <- calc_vif(as.data.frame(X_int), Y_combined)
+
+# Filter out high VIF predictors
+X_int_filter <- X_int[, !(colnames(X_int) %in% high_vif)]
+
+# Combine data for response neurons
+X_combined <- rbind(X_int_filter, X_int_filter, X_int_filter)
+neuron_labels <- rep(response_neurons, each = nrow(spks_t))
+
+# Convert to dataframe and standardize Y
+X1_df <- as.data.frame(X_combined)
+Y_combined <- c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+X1_df$Y <- scale(Y_combined)  # Standardize response variable
+X1_df$neuron <- neuron_labels
+
+# Add reach column again
+X1_df <- X1_df %>%
+  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+
+# Define formula for mixed-effects model
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
+formula_str <- as.formula(paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)"))
+
+# Define weakly informative priors
+priors <- c(
+  brms::prior(normal(0, 1), class = "b"),  # Priors for fixed effects
+  brms::prior(student_t(3, 0, 2.5), class = "Intercept"),  # Regularized intercept
+  brms::prior(cauchy(0, 1), class = "sd")  # Regularized random effects
+)
+
+# Fit Bayesian mixed-effects model with adjusted sampling parameters
+brmodel1 <- brm(
+  formula = formula_str, 
+  data = X1_df, 
+  prior = priors,
+  warmup = 1000, iter = 3000, 
+  chains = 2, cores = 4, seed = 123,
+  control = list(adapt_delta = 0.99, max_treedepth = 12)  # <-- Fix here
+)
+
+# Save model
+save(brmodel1, file = "brmodel1_optimized_315.RData")
+
+
+```
+
+```{r}
+#Presentation Graph
+library(ggplot2)
+library(broom)
+library(dplyr)
+
+models <- list(model1_int, model2_int, model3_int)
+model_names <- c("Neuron 234", "Neuron 168", "Neuron 281")
+
+coef_df <- bind_rows(lapply(seq_along(models), function(i) {
+  tidy(models[[i]], conf.int = TRUE) %>%
+    mutate(model = model_names[i],
+           term = gsub("^(X_combined|X_int_filter)", "", term))  # Remove "X3" or "X_filter" at start
+}))
+
+model_colors <- c("Neuron 234" = "#00BFC4", 
+                  "Neuron 168" = "#7CAE00",
+                  "Neuron 281" = "#C77CFF")
+
+ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  ggtitle("Coefficient Estimates with 95% CIs with Interaction Terms") +
+  theme_minimal() +
+  scale_color_manual(values = model_colors) + 
+  theme(axis.text.y = element_blank(),
+        legend.position = "none")
+```
+
+```{r}
+#Presentation Graph
+library(broom)
+library(ggplot2)
+library(dplyr)
+
+models <- list(model1, model2, model3, model4)
+model_names <- c("Neuron 234", "Neuron 168", "Neuron 281", "Concatenated Model")
+
+coef_df <- bind_rows(lapply(seq_along(models), function(i) {
+  tidy(models[[i]], conf.int = TRUE) %>%
+    mutate(model = model_names[i],
+           term = gsub("^(X3|X_filter)", "", term))
+}))
+
+ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  ggtitle("Coefficient Estimates with 95% CIs") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank())
+```
+
+```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
+library(broom)
+library(dplyr)
+library(broom.mixed)
+
+freq_coefs1 <- tidy(model1_int, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Frequentist Neuron 234")
+
+freq_coefs2 <- tidy(model2_int, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Frequentist Neuron 168")
+
+freq_coefs3 <- tidy(model3_int, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Frequentist Neuron 281")
+
+freq_coefs <- bind_rows(freq_coefs1, freq_coefs2, freq_coefs3)
+
+library(broom.mixed)
+
+bayes_coefs <- tidy(brmodel2, effects = "fixed", conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Bayesian")
+
+coef_df <- bind_rows(freq_coefs, bayes_coefs)
+coef_df$term <- gsub("^X_int_filter", "", coef_df$term)
+
+library(ggplot2)
+
+ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
+  geom_point(position = position_dodge(width = 0.4), size = 3) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), 
+                position = position_dodge(width = 0.4), width = 0.2) +
+  ggtitle("Comparison of 95% CIs for Coefficients: Bayesian vs. Frequentist") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank())
+
+ggplot(coef_df, aes(x = estimate, y = term)) +
+  geom_point(aes(color = model)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, color = model), width = 0.2) +
+  facet_wrap(~model, scales = "fixed") +
+  ggtitle("Coefficient Comparison by Model") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank())
+```
+
+```{r}
+#Presentation Graph
+# Filter coefficients where the 95% CI does not contain 0
+coef_no_zero_ci <- freq_coefs %>%
+  filter((conf.low > 0 | conf.high < 0) & !grepl(":reach", term)) # Filter where CI does not include 0
+
+# List the coefficients that pass the filter
+neuron_234_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 234")
+neuron_168_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 168")
+neuron_281_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 281")
+```
+
+```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
+neuron_234_filtered <- neuron_234_connections %>%
+  slice(-1)
+
+neuron_numbers234 <- gsub("X_int_filterNeuron_", "", neuron_234_filtered$term)
+
+neuron_numbers234 <- as.integer(neuron_numbers234)
+neuron_numbers234 = c(neuron_numbers234, 234)
+
+color_pos_234 <- color_pos[neuron_numbers234, ]
+
+neuron_234_coords <- color_pos_234[color_pos_234$neuron_type == "Neuron 234", c("x", "y")]
+
+color_pos_234$distance_to_neuron_234 <- sqrt((color_pos_234$x - neuron_234_coords$x)^2 + (color_pos_234$y - neuron_234_coords$y)^2)
+
+color_pos_234$line_thickness <- abs(c(neuron_234_filtered$estimate, 0)) 
+
+top_10_neurons234 <- color_pos_234 %>%
+  filter(line_thickness >= 0.0005)
+
+network234 = ggplot(color_pos_234, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_segment(data = top_10_neurons234[color_pos_234$neuron_type != "Neuron 234", ], 
+               aes(xend = neuron_234_coords$x, yend = neuron_234_coords$y, 
+                   size = line_thickness), 
+               color = "black") + 
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
+  labs(title = "Spatial Position of Neurons connected to Neuron 234", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
+neuron_168_filtered <- neuron_168_connections %>%
+  slice(-1)
+
+neuron_numbers168 <- gsub("X_int_filterNeuron_", "", neuron_168_filtered$term)
+
+neuron_numbers168 <- as.integer(neuron_numbers168)
+neuron_numbers168 = c(neuron_numbers168, 168)
+
+color_pos_168 <- color_pos[neuron_numbers168, ]
+
+neuron_168_coords <- color_pos_168[color_pos_168$neuron_type == "Neuron 168", c("x", "y")]
+
+color_pos_168$distance_to_neuron_168 <- sqrt((color_pos_168$x - neuron_168_coords$x)^2 + (color_pos_168$y - neuron_168_coords$y)^2)
+
+color_pos_168$line_thickness <- abs(c(neuron_168_filtered$estimate, 0)) 
+
+top_10_neurons168 <- color_pos_168 %>%
+  filter(line_thickness >= 0.0005)
+
+network168 = ggplot(color_pos_168, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_segment(data = top_10_neurons168[color_pos_234$neuron_type != "Neuron 234", ], 
+               aes(xend = neuron_168_coords$x, yend = neuron_168_coords$y, 
+                   size = line_thickness), 
+               color = "black") + 
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
+  labs(title = "Spatial Position of Neurons connected to Neuron 168", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
+neuron_281_filtered <- neuron_281_connections %>%
+  slice(-1)
+
+neuron_numbers281 <- gsub("X_int_filterNeuron_", "", neuron_281_filtered$term)
+
+neuron_numbers281 <- as.integer(neuron_numbers281)
+neuron_numbers281 = c(neuron_numbers281, 281)
+
+color_pos_281 <- color_pos[neuron_numbers281, ]
+
+neuron_281_coords <- color_pos_281[color_pos_281$neuron_type == "Neuron 281", c("x", "y")]
+
+color_pos_281$distance_to_neuron_281 <- sqrt((color_pos_281$x - neuron_281_coords$x)^2 + (color_pos_281$y - neuron_281_coords$y)^2)
+
+color_pos_281$line_thickness <- abs(c(neuron_281_filtered$estimate, 0)) 
+
+top_10_neurons281 <- color_pos_281 %>%
+  filter(line_thickness >= 0.0005)
+
+network281 = ggplot(color_pos_281, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_segment(data = top_10_neurons281[color_pos_281$neuron_type != "Neuron 281", ], 
+               aes(xend = neuron_281_coords$x, yend = neuron_281_coords$y, 
+                   size = line_thickness), 
+               color = "black") + 
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
+  labs(title = "Spatial Position of Neurons connected to Neuron 281", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
+```
+
+```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=16}
+#Presentation Graph
+library(gridExtra)
+
+grid.arrange(network234, network168, network281, ncol = 2)
+```
+
+```{r}
+#Presentation Graph
+library(broom)
+library(dplyr)
+library(broom.mixed)
+models <- list(modellme, model4_int)
+model_names <- c("Linear Mixed Effects Model", "Concatenated Model")
+
+coef_df <- bind_rows(lapply(seq_along(models), function(i) {
+  tidy(models[[i]], conf.int = TRUE) %>%
+    mutate(model = model_names[i],
+           term = gsub("^(X3|X_combined|`)", "", term))
+}))
+
+ggplot(coef_df, aes(x = estimate, y = term)) +
+  geom_point(aes(color = model)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, color = model), width = 0.2) +
+  facet_wrap(~model, scales = "fixed") +
+  ggtitle("Coefficient Comparison by Model") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank())
+```
+
+```{r}
+#Presentation Graph
+set.seed(123)  # For reproducibility
+
+mse_results <- mse_results %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+ggplot(mse_results, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Frequentist Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#Presentation Graph
+mse_results <- mse_results %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+
+new_model_df <- data.frame(
+  Model = rep("Bayesian Model", length(mse_values)),  # Name your 10th model
+  Fold = seq_along(mse_values),
+  MSE = mse_values
+)
+
+mse_results <- bind_rows(mse_results, new_model_df)
+
+ggplot(mse_results, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for All Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
