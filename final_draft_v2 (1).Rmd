@@ -29,6 +29,7 @@ load("spks_subset_10k.RData")
 load("newmodels.RData")
 load("bayesian_section.RData")
 load("best_mse_results.RData")
+load("appendix_tables.RData")
 redlabels = read_csv("redlabels.csv")
 cell_pos = read_csv("cell_pos.csv")
 calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
@@ -698,7 +699,7 @@ We found that the original model (Bayesian Model 2) was the better model. The el
 
 ### Results:
 
-Table 3 displays the 95% confidence interval for the coefficients $\beta_j$ and the random effects $u_i$. 
+Table 3 displays the 95% confidence interval for the coefficients $\beta_j$ and the random effects $u_i$ and $w_i$. 
 
 \begin{table}[h]
     \centering
@@ -706,21 +707,24 @@ Table 3 displays the 95% confidence interval for the coefficients $\beta_j$ and 
         \toprule
         Predictor & 95\% CI for Coefficients \\
         \midrule
-        Intercept  & (-0.148673559857, 0.00657385172) \\
-        Neuron\_3  & (0.000218055761, 0.00065348163) \\
-        Neuron\_4  & (-0.000207981754, 0.00024537492) \\
-        Neuron\_5  & (-0.000381059900, 0.00005506620) \\
-        Neuron\_6  & (-0.000378376119, -0.00004816019) \\
-        Neuron\_7  & (-0.000121158162, 0.00023930122) \\
-        Neuron\_8  & (-0.000169068717, 0.00031157171) \\
-        Neuron\_9  & (-0.000262885197, 0.00028710419) \\
-        Neuron\_11 & (-0.000181801996, 0.00022621337) \\
-        Neuron\_12 & (-0.000209360478, 0.00007161157) \\
+        Intercept  & (-0.012315, 0.000253) \\
+        Neuron\_3  & (-0.000167, 0.000102) \\
+        Neuron\_4  & (-0.000138, 0.00011) \\
+        Neuron\_5  & (-0.000312, 0.000056) \\
+        Neuron\_6  & (-0.000061, 0.000078) \\
+        Neuron\_7  & (-0.000022, 0.000188) \\
+        Neuron\_8  & (-0.00005, 0.000151) \\
+        Neuron\_9  & (0.000082, 0.000578) \\
+        Neuron\_11 & (-0.000157, 0.000258) \\
+        Neuron\_12 & (-0.000026, 0.000083) \\
         \midrule
         \textbf{Random Effects} & \\
-        Intercept (Neuron\_168) & (0.0687925, 0.0694668) \\
-        Intercept (Neuron\_234) & (0.0690860, 0.0694672) \\
-        Intercept (Neuron\_281) & (0.0691905, 0.0694670) \\
+        Intercept (Neuron\_168) & (-0.00015, 0.002167) \\
+        Intercept (Neuron\_234) & (0.000044, 0.002361) \\
+        Intercept (Neuron\_281) & (0.000056, 0.002375) \\
+        Reach (Neuron\_168) & (-0.01908, 0.005007) \\
+        Reach (Neuron\_234) & (-0.019113, 0.004952) \\
+        Reach (Neuron\_281) & (-0.019066, 0.005024) \\
         \bottomrule
     \end{tabular}
     \caption{95\% Confidence Intervals for Coefficients and Random Effects in the Bayesian Hierarchical Model}
@@ -774,6 +778,8 @@ Figure 17 shows that the Bayesian model performed terribly compared to the Frequ
 
 The comparison between predicted data and actual data is displayed in Figure 18, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects and reach and interaction terms.
 
+Finally, after selecting our best overall model, the separated Frequentist model with reach and interaction terms, we created the predicted Neural Network for each neuron. Figure 19 shows these predicted Neural Networks, the neurons within each plot are the ones predicted by the model to have a non-zero connection with the neuron being predicted for. The true predicted Neural Network would show connection lines from each neuron to the neuron being predicted for, but for visibility reasons we only show the neurons with the strongest connections.
+
 ```{r figs17, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs17}MSE Model Comparison between Best Bayesian Model and Best Frequentist Model"}
 library(ggplot2)
 library(dplyr)
@@ -824,17 +830,17 @@ ggplot(df_clean, aes(x = actual_vals, y = predicted_vals)) +
   theme_minimal()
 ```
 
+```{r figs19, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs19}Predicted Neural Networks Using Best Model"}
+library(gridExtra)
+load("network.RData")
+grid.arrange(network234, network168, network281, ncol = 2)
+```
+
 \clearpage
 
 
 
 # 5. Discussion
-
-```{r echo=FALSE, message=FALSE, warning=FALSE}
-library(gridExtra)
-load("network.RData")
-grid.arrange(network234, network168, network281, ncol = 2)
-```
 
 In this section, discuss how you can improve your model.
 
@@ -1415,6 +1421,43 @@ loo_weak = loo(brmodel_weak)
 loo_compare(loo2, loo_weak)
 ```
 
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Rhat Histogram
+fitsummary = summary(brmodel2)
+fixed = fitsummary$fixed
+random = fitsummary$random$neuron
+rhats = c(fixed$Rhat, random$Rhat)
+params = c(rownames(fixed), rownames(random))
+
+rhat_df = data.frame(Parameter = params, Rhat = rhats)
+
+ggplot(rhat_df, aes(x = Rhat)) +
+  geom_histogram(binwidth = 0.01, fill = "blue", alpha = 0.7, color = "black") +
+  geom_vline(xintercept=1.05, linetype="dashed", color="red") +
+  labs(title="Histogram of R-hat Values", x="R-hat", y="Count") +
+  theme_minimal()
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#ESS Scatterplot
+bulk_ess = c(fixed$Bulk_ESS, random$Bulk_ESS)
+tail_ess = c(fixed$Tail_ESS, random$Tail_ESS)
+
+ess_df = data.frame(Parameter = params, Bulk_ESS = bulk_ess, Tail_ESS = tail_ess)
+
+ess_long <- ess_df %>%
+  pivot_longer(cols = c("Bulk_ESS", "Tail_ESS"), names_to = "ESS_Type", values_to = "ESS_Value")
+
+ess_long %>%
+  ggplot(aes(x = reorder(Parameter, ESS_Value), y = ESS_Value, color = ESS_Type)) +
+  geom_point() +
+  labs(title = "ESS Values by Parameter", x = "Parameter", y = "ESS") +
+  geom_hline(yintercept=1000, linetype="dashed", color="black") +
+  geom_hline(yintercept=400, linetype="dashed", color="red") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+```
+
 ```{r, eval = FALSE, message=FALSE, warning=FALSE}
 library(dplyr)
 #MSE calculation on Testing Data for Bayesian Model and Best Frequentist Model
@@ -1762,3 +1805,18 @@ ggplot(coef_df, aes(x = estimate, y = term)) +
   theme_minimal() + 
   theme(axis.text.y = element_blank())
 ```
+
+Tables of Coefficients:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+final_ci_table
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+rhat_df
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ess_df
+```
+
