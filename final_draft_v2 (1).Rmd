@@ -25,15 +25,13 @@ library(lme4)
 library(brms)
 knitr::opts_chunk$set(fig.width=4, fig.height=3, message=F, warning=F)
 options(scipen=6, digits=6)
-print(file.exists("spks_subset_10k.RData"))
 load("spks_subset_10k.RData")
-print(file.exists("newmodels.RData"))
-#load("newmodels.RData")
+load("newmodels.RData")
+load("bayesian_section.RData")
 redlabels = read_csv("redlabels.csv")
 cell_pos = read_csv("cell_pos.csv")
 calcium_reach_times = read_csv("calcium_reach_times_v2.csv")
 ```
-
 
 # 1. Introduction
 
@@ -644,7 +642,7 @@ In this section, we fit a Bayesian model to predict neuron activity. This allows
 
 We propose to model the neuron activity using a Bayesian linear regression model. This is because in our previous frequentist analysis, we observed both correlation across neuron population, but also heterogeneity for individual neurons. A Bayesian linear regression model is able to capture the pattern at both the population and individual level. 
 
-The model is formulated as follows: 
+The first model is formulated as follows: 
 
 $$
 Y_{it} \sim \mathcal{N}(\mu_{it}, \sigma^2)
@@ -662,15 +660,44 @@ $$
 \beta_j \propto 1, \delta_j \propto 1, \gamma \propto 1, \sigma_u \sim t(3, 0, 2.5), \sigma \sim t(3, 0, 2.5)
 $$
 
+The second model is formulated as follows:
+
+$$
+Y_{it} \sim \mathcal{N}(\mu_{it}, \sigma^2)
+$$
+
+$$
+\mu_{it} = \alpha + u_i + \sum_{j=1}^{p} X_{jt} \beta_j + \gamma Z_t + \sum_{j=1}^{p} X_{jt} Z_t \delta_j
+$$
+
+Random effects:
+$$
+u_i \sim \mathcal{N}(0, \sigma_u^2), w_i \sim \mathcal{N}(0, \sigma_u^2)
+$$
+Fixed effect: 
+$$
+\beta_j \propto 1, \delta_j \propto 1, \gamma \propto 1, \sigma_u \sim t(3, 0, 2.5), \sigma \sim t(3, 0, 2.5)
+$$
+
 We chose these priors because they are the default of the brms package.
 
 ## 4.2 Fitting the Bayesian model(s)
 
-We fit the model by running MCMC chains, with 2 chains, 3000 iterations and 1000 iterations as warm up. 
+We fit the models by running MCMC chains, with 2 chains, 3000 iterations and 1000 iterations as warm up. 
+
+After fitting the models we performed Leave-One-Out cross validation to select the better model. We found that the better model was Model 2, the model that included random effects on the reach term. The elpd_diff for model 1 was -71.7 and the se_diff was 17.7, showing that model 2 is much better, so when moving forwards with sensitivity analysis, reach mixed effects will be included.
+
+After selecting Bayesian Model 2 as the better Bayesian model, we performed sensitivity analysis by refitting the model with the following weakly informative priors:
+
+$$
+\beta_j \sim \mathcal{N}(0, 1), \delta_j \sim \mathcal{N}(0, 1), \gamma \sim \mathcal{N}(0, 1), \sigma_u \sim t(3, 0, 1), \sigma \sim t(3, 0, 1.5)
+$$
+
+We found that the original model (Bayesian Model 2) was the better model. The elpd_diff of the model with the weakly informative prior was -177.2 and the sd_diff was 12.5.
 
 ### Results:
 
-Table 5 displays the 95% confidence interval for the coefficients $\beta_j$ and the random effects $u_i$. 
+Table 3 displays the 95% confidence interval for the coefficients $\beta_j$ and the random effects $u_i$. 
 
 \begin{table}[h]
     \centering
@@ -690,9 +717,9 @@ Table 5 displays the 95% confidence interval for the coefficients $\beta_j$ and 
         Neuron\_12 & (-0.000209360478, 0.00007161157) \\
         \midrule
         \textbf{Random Effects} & \\
-        Neuron\_168 & (0.0687925, 0.0694668) \\
-        Neuron\_234 & (0.0690860, 0.0694672) \\
-        Neuron\_281 & (0.0691905, 0.0694670) \\
+        Intercept (Neuron\_168) & (0.0687925, 0.0694668) \\
+        Intercept (Neuron\_234) & (0.0690860, 0.0694672) \\
+        Intercept (Neuron\_281) & (0.0691905, 0.0694670) \\
         \bottomrule
     \end{tabular}
     \caption{95\% Confidence Intervals for Coefficients and Random Effects in the Bayesian Hierarchical Model}
@@ -723,58 +750,47 @@ We check convergence by examining the Rhat Value (Table 6). The MCMC simulation 
     \label{tab:rhat_values}
 \end{table}
 
-To do: Sensitivity analysis
-
 \clearpage
 
 ## 4.3 Prediction
 
-To make posterior predictions, we sample 10000 points from the data and use the predict function in the brms package to generate prediction. The comparison between predicted data and actual data is displayed in figure 11.
+To make posterior predictions, we sampled 25000 observations from the data that wasn't used to fit any of our models and split it into 5 different test sets. Using these 5 different test sets that none of our data was fit with will allow us to create comparable MSEs to compare the frequentist models to the Bayesian models. Additionally, we will use the predict function in the brms package to generate predictions for 1 of these test sets. 
 
-```{r, echo=FALSE}
-spks_t = as.data.frame(t(spks))
-neurons = paste("Neuron", 1:315, sep = "_")
-colnames(spks_t) = neurons
+Figure 15 shows that the Bayesian model performed terribly compared to the Frequentist model on the testing data. We believe this is likely caused by the convergence issues of the random effects. This means that for this analysis, the best overall model is the separated Frequentist model with reach and interaction terms.
 
-response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
-predictor_neurons = setdiff(neurons, response_neurons)
-load("high_vif.RData")
+The comparison between predicted data and actual data is displayed in Figure 16, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects.
 
-spks_t = spks_t %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+```{r figs15, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs15}MSE Model Comparison between Best Bayesian Model and Best Frequentist Model"}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
 
-X_int = model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
-X_int = X_int[, -1]
-X_int_filter = X_int[, !(colnames(X_int) %in% high_vif)]
-X_combined = rbind(X_int_filter, X_int_filter, X_int_filter)
+mse_table <- data.frame(
+  Fold = 1:5,
+  Neuron234 = c(0.747806, 0.773093, 0.775140, 0.723751, 0.727888),
+  Neuron168 = c(1.73109, 1.66717, 1.75799, 1.62100, 1.72847),
+  Neuron281 = c(0.543428, 0.553589, 0.552082, 0.544651, 0.551669),
+  Bayesian  = c(36.3592, 53.8928, 51.7673, 42.3078, 40.1973)
+)
 
-neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_t))
+mse_long <- mse_table %>%
+  pivot_longer(cols = -Fold, names_to = "Model", values_to = "MSE")
 
-X1_df = as.data.frame(X_combined)
-Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
-X1_df$Y = Y_combined
-X1_df$reach = c(spks_t$reach, spks_t$reach, spks_t$reach)
-X1_df = as.data.frame(scale(X1_df))
-X1_df$neuron = neuron_labels
+ggplot(mse_long, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Bayesian vs Best Frequentist Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-```{r figs15, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs15}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model"}
+```{r figs16, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs16}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model with Outliers Removed"}
 set.seed(12345)
-sample_indices = sample(nrow(X1_df), 10000)
 
-sample_df = X1_df[sample_indices, ]
-predicted_vals = predict(brmodel2, newdata = sample_df)
-actual_vals = sample_df$Y
+predicted_vals = predict(brmodel2, newdata = test_splits[[1]])
+actual_vals = test_splits[[1]]$Y
 
-ggplot(data = data.frame(actual_vals, predicted_vals = predicted_vals[, "Estimate"]),
-       aes(x = actual_vals, y = predicted_vals)) +
-  geom_point(alpha = 0.5) +  
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  
-  labs(title = "Actual vs. Predicted", x = "Actual Y", y = "Predicted Y") +
-  theme_minimal()
-```
-
-```{r}
 df <- data.frame(actual_vals, predicted_vals[, "Estimate"])
 
 df <- df %>% rename(predicted_vals = colnames(df)[2])
@@ -796,9 +812,11 @@ ggplot(df_clean, aes(x = actual_vals, y = predicted_vals)) +
 
 \clearpage
 
+
+
 # 5. Discussion
 
-```{r}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 library(gridExtra)
 load("network.RData")
 grid.arrange(network234, network168, network281, ncol = 2)
@@ -884,6 +902,8 @@ ggplot(calcium_reach_times, aes(x=reach_time)) +
   labs(title= "Distribution of Reach Times", x = "Reach Time", y = "Count") +
   theme(plot.title = element_text(hjust = 0.5))
 ```
+
+R code for Frequentist Models Section:
 
 ```{r, eval=FALSE, message=FALSE, warning=FALSE}
 #Histogram of R^2 Values
@@ -1143,7 +1163,7 @@ plot(fit, res, col = colors,
 abline(h = 0, col = "black", lwd = 2)
 ```
 
-```{r}
+```{r,  eval=FALSE, message=FALSE, warning=FALSE}
 #Five-fold CV for MSE calculation
 library(caret)
 library(lme4)
@@ -1176,7 +1196,6 @@ compute_mse = function(model, test_data, test_Y) {
 mse_results = data.frame(Model = character(), Fold = integer(), MSE = numeric())
 
 for (i in 1:k) {
-  print("iter")
   test_idx = folds[[i]]
   train_idx = setdiff(1:nrow(spks_t), test_idx)
   
@@ -1272,10 +1291,36 @@ summary_mse <- mse_results %>%
 print(summary_mse)
 ```
 
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
-#Implementation of Bayesian models with 10000 data points
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#MSE Violin Plots for Five-fold Cross Validation
+set.seed(123)  # For reproducibility
+
+mse_results <- mse_results %>%
+  mutate(Model = recode(Model,
+    "LM1" = "Neuron 234",
+    "LM2" = "Neuron 168",
+    "LM3" = "Neuron 281",
+    "LM4" = "Concatenated",
+    "LM5" = "Neuron 234 w/ Int.",
+    "LM6" = "Neuron 168 w/ Int.",
+    "LM7" = "Neuron 281 w/ Int.",
+    "LM8" = "Concatenated w/ Int.",
+    "LM9" = "Linear Mixed Effects"
+  ))
+ggplot(mse_results, aes(x = Model, y = MSE)) +
+  geom_violin(fill = "skyblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "MSE Distribution for Frequentist Models",
+       x = "Model",
+       y = "Mean Squared Error") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+R code for Bayesian Section:
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Implementation of Bayesian models with 2000 data points
 load("high_vif.RData")
-spks <- (spks - mean(spks)) / sd(spks)
 spks_t = as.data.frame(t(spks))
 neurons = paste("Neuron", 1:315, sep = "_")
 colnames(spks_t) = neurons
@@ -1295,123 +1340,314 @@ neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(sp
 
 X1_df = as.data.frame(X_combined)
 Y_combined = c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+reach_combined = c(spks_t$reach, spks_t$reach, spks_t$reach)
+X1_df$reach = reach_combined
 X1_df$Y = Y_combined
 X1_df$neuron = neuron_labels
 
-X1_df = X1_df %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
+sample_size <- 667  
+
+X1_sampled <- X1_df %>%
+  group_by(neuron) %>%
+  sample_n(sample_size, replace = FALSE) %>%
+  ungroup()
 
 # mixed effect on intercept, default prior
 fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
 formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)")
 
 brmodel1 <- brm(formula = formula_str, 
-             data = X1_df, 
+             data = X1_sampled, 
              warmup = 1000, iter = 3000, 
              cores = 4, chains = 2, seed = 123)
-save(brmodel1, file = "brmodel1_314.RData")
 
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron", "reach"))
-formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | reach) + (1 | neuron)")
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 + reach | neuron)")
 
 # mixed effect on reach and intercept, default prior
-brmodel5 <- brm(formula = formula_str, 
-             data = X1_df, 
+brmodel2 <- brm(formula = formula_str, 
+             data = X1_sampled, 
              warmup = 1000, iter = 3000, 
              cores = 4, chains = 2, seed = 123)
-
-save(brmodel5, file = "brmodel5_314.RData")
 ```
 
-```{r}
-#Optimized implementation of Bayesian models (did not work and will not be included in final report)
-# Load required libraries
-library(brms)
-library(dplyr)
-library(caret)  # For VIF calculation
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+loo1 = loo(brmodel1)
+loo2 = loo(brmodel2)
 
-# Load data
+loo_compare(loo1, loo2)
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+priors <- c(
+  set_prior("normal(0, 1)", class = "b"),
+  set_prior("student_t(3, 0, 1)", class = "sd"),
+  set_prior("student_t(3, 0, 1.5)", class = "sigma")
+)
+
+fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
+formula_str <- paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 + reach | neuron)")
+
+brmodel_weak <- brm(formula = formula_str, 
+                      data = X1_sampled, 
+                      prior = priors,
+                      warmup = 1000, iter = 3000, 
+                      cores = 4, chains = 2, seed = 123)
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+loo_weak = loo(brmodel_weak)
+
+loo_compare(loo2, loo_weak)
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+#MSE calculation on Testing Data for Bayesian Model and Best Frequentist Model
+
+load("sample_spks.RData")
+spks_sample_t = as.data.frame(t(sample_spks))
+neurons = paste("Neuron", 1:315, sep = "_")
+colnames(spks_sample_t) = neurons
+
+response_neurons = c("Neuron_234", "Neuron_168", "Neuron_281")
+predictor_neurons = setdiff(neurons, response_neurons)
 load("high_vif.RData")
 
-# Standardize predictors (spks)
-spks <- scale(spks)  # Standardizes to mean=0, sd=1
-spks_t <- as.data.frame(t(spks))
-
-neurons <- paste("Neuron", 1:315, sep = "_")
-colnames(spks_t) <- neurons
-
-# Define response and predictor neurons
-response_neurons <- c("Neuron_234", "Neuron_168", "Neuron_281")
-predictor_neurons <- setdiff(neurons, response_neurons)
-
-# Identify reach times and add reach column
-spks_t <- spks_t %>%
+spks_sample_t = spks_sample_t %>%
   mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
 
-# Construct interaction terms
-X_int <- model.matrix(~ . * reach, data = spks_t[, c(predictor_neurons, "reach")])
-X_int <- X_int[, -1]  # Remove intercept
+X_int_sample = model.matrix(~ . * reach, data = spks_sample_t[, c(predictor_neurons, "reach")])
+X_int_sample = X_int_sample[, -1]
+X_int_sample_filter = X_int_sample[, !(colnames(X_int_sample) %in% high_vif)]
+X_sample_combined = rbind(X_int_sample_filter, X_int_sample_filter, X_int_sample_filter)
 
-# Remove high VIF predictors
-library(car)
+neuron_labels <- rep(c("Neuron_234", "Neuron_168", "Neuron_281"), each = nrow(spks_sample_t))
 
-calc_vif <- function(predictors_df, response) {
-    df <- cbind(Y = response, predictors_df)  # Combine Y and predictors
-    vif_values <- vif(lm(Y ~ ., data = df))  # Compute VIF
-    return(names(vif_values[vif_values > 5]))  # Remove predictors with VIF > 5
+X1_sample_df = as.data.frame(X_sample_combined)
+Y_sample_combined = c(spks_sample_t$Neuron_234, spks_sample_t$Neuron_168, spks_sample_t$Neuron_281)
+X1_sample_df$Y = Y_sample_combined
+X1_sample_df$reach = c(spks_sample_t$reach, spks_sample_t$reach, spks_sample_t$reach)
+X1_sample_df = as.data.frame(scale(X1_sample_df))
+X1_sample_df$neuron = neuron_labels
+
+X1_sample_df <- X1_sample_df %>%
+  group_by(neuron) %>%
+  mutate(row_id = row_number())
+
+X1_sample_df <- X1_sample_df %>%
+  mutate(fold = (row_id - 1) %% 5 + 1) %>%
+  ungroup()
+
+test_splits <- split(X1_sample_df, X1_sample_df$fold)
+
+test_splits <- lapply(test_splits, function(df) df %>% select(-fold, -row_id))
+
+compute_mse = function(model, test_data, test_Y) {
+  preds = predict(model, newdata = test_data, allow.new.levels = TRUE)
+  mean((test_Y - preds)^2)
 }
 
-# Ensure Y is correctly defined
-Y_combined <- c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
+brms_mse_results <- lapply(test_splits, function(test_df) {
+  test_Y <- test_df$Y  
+  test_data <- test_df %>% select(-Y)  
+  
+  compute_mse(brmodel2, test_data, test_Y)
+})
 
-# Compute high VIF predictors
-high_vif <- calc_vif(as.data.frame(X_int), Y_combined)
+mse_model1 <- sapply(test_splits, function(test_df) {
+  test_subset <- test_df[1:5000, ]
+  test_Y <- test_subset$Y
+  test_data <- test_subset %>% select(-Y, -neuron)
+  
+  compute_mse(model1_int, test_data, test_Y)
+})
 
-# Filter out high VIF predictors
-X_int_filter <- X_int[, !(colnames(X_int) %in% high_vif)]
+mse_model2 <- sapply(test_splits, function(test_df) {
+  test_subset <- test_df[5001:10000, ]
+  test_Y <- test_subset$Y
+  test_data <- test_subset %>% select(-Y, -neuron)
+  
+  compute_mse(model2_int, test_data, test_Y)
+})
 
-# Combine data for response neurons
-X_combined <- rbind(X_int_filter, X_int_filter, X_int_filter)
-neuron_labels <- rep(response_neurons, each = nrow(spks_t))
+mse_model3 <- sapply(test_splits, function(test_df) {
+  test_subset <- test_df[10001:15000, ]
+  test_Y <- test_subset$Y
+  test_data <- test_subset %>% select(-Y, -neuron)
+  
+  compute_mse(model3_int, test_data, test_Y)
+})
 
-# Convert to dataframe and standardize Y
-X1_df <- as.data.frame(X_combined)
-Y_combined <- c(spks_t$Neuron_234, spks_t$Neuron_168, spks_t$Neuron_281)
-X1_df$Y <- scale(Y_combined)  # Standardize response variable
-X1_df$neuron <- neuron_labels
+brms_mse_results <- unlist(brms_mse_results)
 
-# Add reach column again
-X1_df <- X1_df %>%
-  mutate(reach = as.integer(row_number() %in% unlist(apply(calcium_reach_times, 1, function(x) x[1]:x[2]))))
-
-# Define formula for mixed-effects model
-fixed_effects <- setdiff(names(X1_df), c("Y", "neuron"))
-formula_str <- as.formula(paste("Y ~", paste(fixed_effects, collapse = " + "), "+ (1 | neuron)"))
-
-# Define weakly informative priors
-priors <- c(
-  brms::prior(normal(0, 1), class = "b"),  # Priors for fixed effects
-  brms::prior(student_t(3, 0, 2.5), class = "Intercept"),  # Regularized intercept
-  brms::prior(cauchy(0, 1), class = "sd")  # Regularized random effects
-)
-
-# Fit Bayesian mixed-effects model with adjusted sampling parameters
-brmodel1 <- brm(
-  formula = formula_str, 
-  data = X1_df, 
-  prior = priors,
-  warmup = 1000, iter = 3000, 
-  chains = 2, cores = 4, seed = 123,
-  control = list(adapt_delta = 0.99, max_treedepth = 12)  # <-- Fix here
-)
-
-# Save model
-save(brmodel1, file = "brmodel1_optimized_315.RData")
-
-
+full_mse_results <- data.frame(Fold = 1:5, Neuron234 = mse_model1, Neuron168 = mse_model2, Neuron281 =mse_model3, Bayesian = brms_mse_results)
 ```
 
-```{r}
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Find Non-Zero Coefs for Neural Network Plot
+library(broom)
+library(dplyr)
+library(broom.mixed)
+
+freq_coefs1 <- tidy(model1_int, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Frequentist Neuron 234")
+
+freq_coefs2 <- tidy(model2_int, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Frequentist Neuron 168")
+
+freq_coefs3 <- tidy(model3_int, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(model = "Frequentist Neuron 281")
+
+freq_coefs <- bind_rows(freq_coefs1, freq_coefs2, freq_coefs3)
+
+coef_no_zero_ci <- freq_coefs %>%
+  filter((conf.low > 0 | conf.high < 0) & !grepl(":reach", term))
+
+neuron_234_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 234")
+neuron_168_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 168")
+neuron_281_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 281")
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Create Neural Network Plot for Neuron 234
+
+neuron_234_filtered <- neuron_234_connections %>%
+  slice(-1)
+
+neuron_numbers234 <- gsub("X_int_filterNeuron_", "", neuron_234_filtered$term)
+
+neuron_numbers234 <- as.integer(neuron_numbers234)
+neuron_numbers234 = c(neuron_numbers234, 234)
+
+color_pos_234 <- color_pos[neuron_numbers234, ]
+
+neuron_234_coords <- color_pos_234[color_pos_234$neuron_type == "Neuron 234", c("x", "y")]
+
+color_pos_234$distance_to_neuron_234 <- sqrt((color_pos_234$x - neuron_234_coords$x)^2 + (color_pos_234$y - neuron_234_coords$y)^2)
+
+color_pos_234$line_thickness <- abs(c(neuron_234_filtered$estimate, 0)) 
+
+top_10_neurons234 <- color_pos_234 %>%
+  filter(line_thickness >= 0.0005)
+
+network234 = ggplot(color_pos_234, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_segment(data = top_10_neurons234[color_pos_234$neuron_type != "Neuron 234", ], 
+               aes(xend = neuron_234_coords$x, yend = neuron_234_coords$y, 
+                   size = line_thickness), 
+               color = "black") + 
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
+  labs(title = "Spatial Position of Neurons connected to Neuron 234", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Create Neural Network Plot for Neuron 168
+neuron_168_filtered <- neuron_168_connections %>%
+  slice(-1)
+
+neuron_numbers168 <- gsub("X_int_filterNeuron_", "", neuron_168_filtered$term)
+
+neuron_numbers168 <- as.integer(neuron_numbers168)
+neuron_numbers168 = c(neuron_numbers168, 168)
+
+color_pos_168 <- color_pos[neuron_numbers168, ]
+
+neuron_168_coords <- color_pos_168[color_pos_168$neuron_type == "Neuron 168", c("x", "y")]
+
+color_pos_168$distance_to_neuron_168 <- sqrt((color_pos_168$x - neuron_168_coords$x)^2 + (color_pos_168$y - neuron_168_coords$y)^2)
+
+color_pos_168$line_thickness <- abs(c(neuron_168_filtered$estimate, 0)) 
+
+top_10_neurons168 <- color_pos_168 %>%
+  filter(line_thickness >= 0.0005)
+
+network168 = ggplot(color_pos_168, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_segment(data = top_10_neurons168[color_pos_234$neuron_type != "Neuron 234", ], 
+               aes(xend = neuron_168_coords$x, yend = neuron_168_coords$y, 
+                   size = line_thickness), 
+               color = "black") + 
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
+  labs(title = "Spatial Position of Neurons connected to Neuron 168", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Create Neural Network Plot for Neuron 281
+neuron_281_filtered <- neuron_281_connections %>%
+  slice(-1)
+
+neuron_numbers281 <- gsub("X_int_filterNeuron_", "", neuron_281_filtered$term)
+
+neuron_numbers281 <- as.integer(neuron_numbers281)
+neuron_numbers281 = c(neuron_numbers281, 281)
+
+color_pos_281 <- color_pos[neuron_numbers281, ]
+
+neuron_281_coords <- color_pos_281[color_pos_281$neuron_type == "Neuron 281", c("x", "y")]
+
+color_pos_281$distance_to_neuron_281 <- sqrt((color_pos_281$x - neuron_281_coords$x)^2 + (color_pos_281$y - neuron_281_coords$y)^2)
+
+color_pos_281$line_thickness <- abs(c(neuron_281_filtered$estimate, 0)) 
+
+top_10_neurons281 <- color_pos_281 %>%
+  filter(line_thickness >= 0.0005)
+
+network281 = ggplot(color_pos_281, aes(x = x, y = y, color = as.factor(neuron_type))) +
+  geom_segment(data = top_10_neurons281[color_pos_281$neuron_type != "Neuron 281", ], 
+               aes(xend = neuron_281_coords$x, yend = neuron_281_coords$y, 
+                   size = line_thickness), 
+               color = "black") + 
+  geom_point() +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
+  labs(title = "Spatial Position of Neurons connected to Neuron 281", color = "Neuron Type") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Display all Neural Network Plots
+library(gridExtra)
+
+grid.arrange(network234, network168, network281, ncol = 2)
+```
+
+R code for Graphs used in Presentation:
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+#Presentation Graph
+library(broom)
+library(dplyr)
+library(broom.mixed)
+models <- list(modellme, model4_int)
+model_names <- c("Linear Mixed Effects Model", "Concatenated Model")
+
+coef_df <- bind_rows(lapply(seq_along(models), function(i) {
+  tidy(models[[i]], conf.int = TRUE) %>%
+    mutate(model = model_names[i],
+           term = gsub("^(X3|X_combined|`)", "", term))
+}))
+
+ggplot(coef_df, aes(x = estimate, y = term)) +
+  geom_point(aes(color = model)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, color = model), width = 0.2) +
+  facet_wrap(~model, scales = "fixed") +
+  ggtitle("Coefficient Comparison by Model") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank())
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
 #Presentation Graph
 library(ggplot2)
 library(broom)
@@ -1441,7 +1677,7 @@ ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
         legend.position = "none")
 ```
 
-```{r}
+```{r,  eval=FALSE, message=FALSE, warning=FALSE}
 #Presentation Graph
 library(broom)
 library(ggplot2)
@@ -1465,7 +1701,7 @@ ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
   theme(axis.text.y = element_blank())
 ```
 
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
 #Presentation Graph
 library(broom)
 library(dplyr)
@@ -1512,205 +1748,3 @@ ggplot(coef_df, aes(x = estimate, y = term)) +
   theme_minimal() + 
   theme(axis.text.y = element_blank())
 ```
-
-```{r}
-#Presentation Graph
-# Filter coefficients where the 95% CI does not contain 0
-coef_no_zero_ci <- freq_coefs %>%
-  filter((conf.low > 0 | conf.high < 0) & !grepl(":reach", term)) # Filter where CI does not include 0
-
-# List the coefficients that pass the filter
-neuron_234_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 234")
-neuron_168_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 168")
-neuron_281_connections = coef_no_zero_ci %>% filter(model == "Frequentist Neuron 281")
-```
-
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE}
-#Presentation Graph
-neuron_234_filtered <- neuron_234_connections %>%
-  slice(-1)
-
-neuron_numbers234 <- gsub("X_int_filterNeuron_", "", neuron_234_filtered$term)
-
-neuron_numbers234 <- as.integer(neuron_numbers234)
-neuron_numbers234 = c(neuron_numbers234, 234)
-
-color_pos_234 <- color_pos[neuron_numbers234, ]
-
-neuron_234_coords <- color_pos_234[color_pos_234$neuron_type == "Neuron 234", c("x", "y")]
-
-color_pos_234$distance_to_neuron_234 <- sqrt((color_pos_234$x - neuron_234_coords$x)^2 + (color_pos_234$y - neuron_234_coords$y)^2)
-
-color_pos_234$line_thickness <- abs(c(neuron_234_filtered$estimate, 0)) 
-
-top_10_neurons234 <- color_pos_234 %>%
-  filter(line_thickness >= 0.0005)
-
-network234 = ggplot(color_pos_234, aes(x = x, y = y, color = as.factor(neuron_type))) +
-  geom_segment(data = top_10_neurons234[color_pos_234$neuron_type != "Neuron 234", ], 
-               aes(xend = neuron_234_coords$x, yend = neuron_234_coords$y, 
-                   size = line_thickness), 
-               color = "black") + 
-  geom_point() +
-  theme_minimal() +
-  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
-  labs(title = "Spatial Position of Neurons connected to Neuron 234", color = "Neuron Type") +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
-```
-
-```{r, eval = FALSE, message=FALSE, warning=FALSE}
-#Presentation Graph
-neuron_168_filtered <- neuron_168_connections %>%
-  slice(-1)
-
-neuron_numbers168 <- gsub("X_int_filterNeuron_", "", neuron_168_filtered$term)
-
-neuron_numbers168 <- as.integer(neuron_numbers168)
-neuron_numbers168 = c(neuron_numbers168, 168)
-
-color_pos_168 <- color_pos[neuron_numbers168, ]
-
-neuron_168_coords <- color_pos_168[color_pos_168$neuron_type == "Neuron 168", c("x", "y")]
-
-color_pos_168$distance_to_neuron_168 <- sqrt((color_pos_168$x - neuron_168_coords$x)^2 + (color_pos_168$y - neuron_168_coords$y)^2)
-
-color_pos_168$line_thickness <- abs(c(neuron_168_filtered$estimate, 0)) 
-
-top_10_neurons168 <- color_pos_168 %>%
-  filter(line_thickness >= 0.0005)
-
-network168 = ggplot(color_pos_168, aes(x = x, y = y, color = as.factor(neuron_type))) +
-  geom_segment(data = top_10_neurons168[color_pos_234$neuron_type != "Neuron 234", ], 
-               aes(xend = neuron_168_coords$x, yend = neuron_168_coords$y, 
-                   size = line_thickness), 
-               color = "black") + 
-  geom_point() +
-  theme_minimal() +
-  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
-  labs(title = "Spatial Position of Neurons connected to Neuron 168", color = "Neuron Type") +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
-```
-
-```{r, eval = FALSE, message=FALSE, warning=FALSE}
-#Presentation Graph
-neuron_281_filtered <- neuron_281_connections %>%
-  slice(-1)
-
-neuron_numbers281 <- gsub("X_int_filterNeuron_", "", neuron_281_filtered$term)
-
-neuron_numbers281 <- as.integer(neuron_numbers281)
-neuron_numbers281 = c(neuron_numbers281, 281)
-
-color_pos_281 <- color_pos[neuron_numbers281, ]
-
-neuron_281_coords <- color_pos_281[color_pos_281$neuron_type == "Neuron 281", c("x", "y")]
-
-color_pos_281$distance_to_neuron_281 <- sqrt((color_pos_281$x - neuron_281_coords$x)^2 + (color_pos_281$y - neuron_281_coords$y)^2)
-
-color_pos_281$line_thickness <- abs(c(neuron_281_filtered$estimate, 0)) 
-
-top_10_neurons281 <- color_pos_281 %>%
-  filter(line_thickness >= 0.0005)
-
-network281 = ggplot(color_pos_281, aes(x = x, y = y, color = as.factor(neuron_type))) +
-  geom_segment(data = top_10_neurons281[color_pos_281$neuron_type != "Neuron 281", ], 
-               aes(xend = neuron_281_coords$x, yend = neuron_281_coords$y, 
-                   size = line_thickness), 
-               color = "black") + 
-  geom_point() +
-  theme_minimal() +
-  scale_color_manual(values = c("blue", "red", "green", "green", "green")) +
-  labs(title = "Spatial Position of Neurons connected to Neuron 281", color = "Neuron Type") +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  scale_size_continuous(name = "Coefficient Magnitude", range = c(0.01, 1))
-```
-
-```{r, eval = FALSE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=16}
-#Presentation Graph
-library(gridExtra)
-
-grid.arrange(network234, network168, network281, ncol = 2)
-```
-
-```{r}
-#Presentation Graph
-library(broom)
-library(dplyr)
-library(broom.mixed)
-models <- list(modellme, model4_int)
-model_names <- c("Linear Mixed Effects Model", "Concatenated Model")
-
-coef_df <- bind_rows(lapply(seq_along(models), function(i) {
-  tidy(models[[i]], conf.int = TRUE) %>%
-    mutate(model = model_names[i],
-           term = gsub("^(X3|X_combined|`)", "", term))
-}))
-
-ggplot(coef_df, aes(x = estimate, y = term)) +
-  geom_point(aes(color = model)) +
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, color = model), width = 0.2) +
-  facet_wrap(~model, scales = "fixed") +
-  ggtitle("Coefficient Comparison by Model") +
-  theme_minimal() + 
-  theme(axis.text.y = element_blank())
-```
-
-```{r}
-#Presentation Graph
-set.seed(123)  # For reproducibility
-
-mse_results <- mse_results %>%
-  mutate(Model = recode(Model,
-    "LM1" = "Neuron 234",
-    "LM2" = "Neuron 168",
-    "LM3" = "Neuron 281",
-    "LM4" = "Concatenated",
-    "LM5" = "Neuron 234 w/ Int.",
-    "LM6" = "Neuron 168 w/ Int.",
-    "LM7" = "Neuron 281 w/ Int.",
-    "LM8" = "Concatenated w/ Int.",
-    "LM9" = "Linear Mixed Effects"
-  ))
-ggplot(mse_results, aes(x = Model, y = MSE)) +
-  geom_violin(fill = "skyblue", alpha = 0.6) +
-  theme_minimal() +
-  labs(title = "MSE Distribution for Frequentist Models",
-       x = "Model",
-       y = "Mean Squared Error") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-```{r}
-#Presentation Graph
-mse_results <- mse_results %>%
-  mutate(Model = recode(Model,
-    "LM1" = "Neuron 234",
-    "LM2" = "Neuron 168",
-    "LM3" = "Neuron 281",
-    "LM4" = "Concatenated",
-    "LM5" = "Neuron 234 w/ Int.",
-    "LM6" = "Neuron 168 w/ Int.",
-    "LM7" = "Neuron 281 w/ Int.",
-    "LM8" = "Concatenated w/ Int.",
-    "LM9" = "Linear Mixed Effects"
-  ))
-
-new_model_df <- data.frame(
-  Model = rep("Bayesian Model", length(mse_values)),  # Name your 10th model
-  Fold = seq_along(mse_values),
-  MSE = mse_values
-)
-
-mse_results <- bind_rows(mse_results, new_model_df)
-
-ggplot(mse_results, aes(x = Model, y = MSE)) +
-  geom_violin(fill = "skyblue", alpha = 0.6) +
-  theme_minimal() +
-  labs(title = "MSE Distribution for All Models",
-       x = "Model",
-       y = "Mean Squared Error") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
