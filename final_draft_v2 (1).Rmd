@@ -852,6 +852,33 @@ Please also discuss briefly the contributions of your teammate(s), as well as th
 
 # References
 
+Allaire, JJ, et al. *rmarkdown: Dynamic Documents for R*. 2022,  
+[https://github.com/rstudio/rmarkdown](https://github.com/rstudio/rmarkdown).  
+
+Kotekal, Subhodh, and Jason N. MacLean. "Recurrent Interactions Can Explain the  
+Variance in Single Trial Responses." *PLOS Computational Biology*, Public Library  
+of Science, [https://journals.plos.org/ploscompbiol/article/authors?id=10.1371%2Fjournal.pcbi.1007591](https://journals.plos.org/ploscompbiol/article/authors?id=10.1371%2Fjournal.pcbi.1007591).  
+
+Warnick, Ryan, et al. "A Bayesian Approach for Estimating Dynamic Functional  
+Network Connectivity in fMRI Data." *Journal of the American Statistical Association*,  
+vol. 113, no. 521, Jan. 2018, pp. 134–151,  
+[https://doi.org/10.1080/01621459.2017.1379404](https://doi.org/10.1080/01621459.2017.1379404).  
+
+Xie, Yihui. *Dynamic Documents with R and knitr*. 2nd ed., Chapman and Hall/CRC, 2015.  
+
+---. "knitr: A Comprehensive Tool for Reproducible Research in R." *Implementing  
+Reproducible Computational Research*, edited by Victoria Stodden, Friedrich  
+Leisch, and Roger D. Peng, Chapman and Hall/CRC, 2014.  
+
+---. *knitr: A General-Purpose Package for Dynamic Report Generation in R*. R  
+package version 1.40, 2022, [https://yihui.org/knitr/](https://yihui.org/knitr/).  
+
+Xie, Yihui, JJ Allaire, and Garrett Grolemund. *R Markdown: The Definitive Guide*.  
+Chapman and Hall/CRC, 2018.  
+
+Xie, Yihui, Christophe Dervieux, and Emily Riederer. *R Markdown Cookbook*.  
+Chapman and Hall/CRC, 2020.  
+
 # Appendix
 
 R code for Exploratory Data Analysis graphs:
