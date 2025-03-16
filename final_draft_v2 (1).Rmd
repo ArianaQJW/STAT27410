@@ -727,13 +727,10 @@ Table 3 displays the 95% confidence interval for the coefficients $\beta_j$ and 
     \label{tab:bayesian_model_ci_random}
 \end{table}
 
-We check convergence by examining the Rhat Value (Table 6). The MCMC simulation converged for the slopes, indicated by a Rhat value close to 1, but not the intercept. 
-
-```{r}
-fitsummary = summary(brmodel2)
-```
+We check convergence by examining the Rhat Values shown in Figure 15. The MCMC simulation converged for the slopes of the neuron activity terms and the intercept, indicated by a Rhat value close to 1, but not the random effects or the reach and interaction terms. 
 
 ```{r figs15, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs15}Histogram of R-hat Values for Best Bayesian Model"}
+fitsummary = summary(brmodel2)
 fixed = fitsummary$fixed
 random = fitsummary$random$neuron
 rhats = c(fixed$Rhat, random$Rhat)
@@ -773,9 +770,9 @@ ess_long %>%
 
 To make posterior predictions, we sampled 25000 observations from the data that wasn't used to fit any of our models and split it into 5 different test sets. Using these 5 different test sets that none of our data was fit with will allow us to create comparable MSEs to compare the frequentist models to the Bayesian models. Additionally, we will use the predict function in the brms package to generate predictions for 1 of these test sets. 
 
-Figure 17 shows that the Bayesian model performed terribly compared to the Frequentist model on the testing data. We believe this is likely caused by the convergence issues of the random effects. This means that for this analysis, the best overall model is the separated Frequentist model with reach and interaction terms.
+Figure 17 shows that the Bayesian model performed terribly compared to the Frequentist model on the testing data. We believe this is likely caused by the convergence issues of the random effects and reach and interaction terms. This means that for this analysis, the best overall model is the separated Frequentist model with reach and interaction terms.
 
-The comparison between predicted data and actual data is displayed in Figure 18, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects.
+The comparison between predicted data and actual data is displayed in Figure 18, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects and reach and interaction terms.
 
 ```{r figs17, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs17}MSE Model Comparison between Best Bayesian Model and Best Frequentist Model"}
 library(ggplot2)
