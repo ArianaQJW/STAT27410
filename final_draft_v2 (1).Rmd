@@ -729,27 +729,43 @@ Table 3 displays the 95% confidence interval for the coefficients $\beta_j$ and 
 
 We check convergence by examining the Rhat Value (Table 6). The MCMC simulation converged for the slopes, indicated by a Rhat value close to 1, but not the intercept. 
 
-\begin{table}[h]
-    \centering
-    \begin{tabular}{l l}
-        \toprule
-        Parameter & Rhat Value \\
-        \midrule
-        Intercept  & 1.9036 \\
-         Neuron\_3  & 1.0004 \\
-        Neuron\_4  & 0.9999 \\
-        Neuron\_5  & 1.0002 \\
-        Neuron\_6  & 0.9997 \\
-        Neuron\_7  & 1.0008 \\
-        Neuron\_8  & 1.0015 \\
-        Neuron\_9  & 1.0002 \\
-        Neuron\_11 & 1.0006 \\
-        Neuron\_12 & 1.0001 \\
-        \bottomrule
-    \end{tabular}
-    \caption{Rhat Values for Model Parameters (MCMC Convergence Diagnostics)}
-    \label{tab:rhat_values}
-\end{table}
+```{r}
+fitsummary = summary(brmodel2)
+```
+
+```{r figs15, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs15}Histogram of R-hat Values for Best Bayesian Model"}
+fixed = fitsummary$fixed
+random = fitsummary$random$neuron
+rhats = c(fixed$Rhat, random$Rhat)
+params = c(rownames(fixed), rownames(random))
+
+rhat_df = data.frame(Parameter = params, Rhat = rhats)
+
+ggplot(rhat_df, aes(x = Rhat)) +
+  geom_histogram(binwidth = 0.01, fill = "blue", alpha = 0.7, color = "black") +
+  geom_vline(xintercept=1.05, linetype="dashed", color="red") +
+  labs(title="Histogram of R-hat Values", x="R-hat", y="Count") +
+  theme_minimal()
+```
+
+```{r figs16, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs16}Scatterplot of ESS vs. Variable for Best Bayesian Model"}
+bulk_ess = c(fixed$Bulk_ESS, random$Bulk_ESS)
+tail_ess = c(fixed$Tail_ESS, random$Tail_ESS)
+
+ess_df = data.frame(Parameter = params, Bulk_ESS = bulk_ess, Tail_ESS = tail_ess)
+
+ess_long <- ess_df %>%
+  pivot_longer(cols = c("Bulk_ESS", "Tail_ESS"), names_to = "ESS_Type", values_to = "ESS_Value")
+
+ess_long %>%
+  ggplot(aes(x = reorder(Parameter, ESS_Value), y = ESS_Value, color = ESS_Type)) +
+  geom_point() +
+  labs(title = "ESS Values by Parameter", x = "Parameter", y = "ESS") +
+  geom_hline(yintercept=1000, linetype="dashed", color="black") +
+  geom_hline(yintercept=400, linetype="dashed", color="red") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+```
 
 \clearpage
 
@@ -757,11 +773,11 @@ We check convergence by examining the Rhat Value (Table 6). The MCMC simulation 
 
 To make posterior predictions, we sampled 25000 observations from the data that wasn't used to fit any of our models and split it into 5 different test sets. Using these 5 different test sets that none of our data was fit with will allow us to create comparable MSEs to compare the frequentist models to the Bayesian models. Additionally, we will use the predict function in the brms package to generate predictions for 1 of these test sets. 
 
-Figure 15 shows that the Bayesian model performed terribly compared to the Frequentist model on the testing data. We believe this is likely caused by the convergence issues of the random effects. This means that for this analysis, the best overall model is the separated Frequentist model with reach and interaction terms.
+Figure 17 shows that the Bayesian model performed terribly compared to the Frequentist model on the testing data. We believe this is likely caused by the convergence issues of the random effects. This means that for this analysis, the best overall model is the separated Frequentist model with reach and interaction terms.
 
-The comparison between predicted data and actual data is displayed in Figure 16, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects.
+The comparison between predicted data and actual data is displayed in Figure 18, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects.
 
-```{r figs15, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs15}MSE Model Comparison between Best Bayesian Model and Best Frequentist Model"}
+```{r figs17, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs17}MSE Model Comparison between Best Bayesian Model and Best Frequentist Model"}
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -786,7 +802,7 @@ ggplot(mse_long, aes(x = Model, y = MSE)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-```{r figs16, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs16}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model with Outliers Removed"}
+```{r figs18, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="\\label{fig:figs18}Actual Y Values vs. Predicted Y Value for Bayesian Heirarchical Model with Outliers Removed"}
 set.seed(12345)
 
 predicted_vals = predict(brmodel2, newdata = test_splits[[1]])
