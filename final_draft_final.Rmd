@@ -633,7 +633,7 @@ plot(fit, res, col = colors,
 abline(h = 0, col = "black", lwd = 2)
 ```
 
-In conclusion, for the lme model, we observe higher MSE, but less pattern in the residual plot. Hence, lme model could be a better fit, despite the higher MSE. 
+In conclusion, for the lme model, we observe higher MSE for the testing data from five-fold cross validation, but less pattern in the residual plot. Hence, lme model could be a better fit, despite the higher MSE for the testing data from five-fold cross validation. 
 
 \clearpage
 
@@ -806,7 +806,9 @@ Figure 19 shows that the Bayesian model performed terribly compared to the Frequ
 
 The comparison between predicted data and actual data is displayed in Figure 20, showing that after removing the outliers, the models predictions are very weak. The points should ideally follow along the dotted line but they do not, showing the weakness of the model that is likely caused by the convergence issues of the random effects and reach and interaction terms.
 
-Finally, after selecting our best overall model, the separated Frequentist model with reach and interaction terms, we created the predicted Neural Network for each neuron. Figure 21 shows these predicted Neural Networks, the neurons within each plot are the ones predicted by the model to have a non-zero connection with the neuron being predicted for. The true predicted Neural Network would show connection lines from each neuron to the neuron being predicted for, but for visibility reasons we only show the neurons with the strongest connections.
+We also did posterior predictive checking in Figure 21 for our model.
+
+Finally, after selecting our best overall model, the separated Frequentist model with reach and interaction terms, we created the predicted Neural Network for each neuron. Figure 22 shows these predicted Neural Networks, the neurons within each plot are the ones predicted by the model to have a non-zero connection with the neuron being predicted for. The true predicted Neural Network would show connection lines from each neuron to the neuron being predicted for, but for visibility reasons we only show the neurons with the strongest connections.
 
 ```{r figs19, echo=FALSE, message=FALSE, warning=FALSE,fig.width=8, fig.height=10, fig.cap="\\label{fig:figs19}MSE Model Comparison between Best Bayesian Model and Best Frequentist Model"}
 library(ggplot2)
@@ -858,7 +860,19 @@ ggplot(df_clean, aes(x = actual_vals, y = predicted_vals)) +
   theme_minimal()
 ```
 
-```{r figs21, echo=FALSE, message=FALSE, warning=FALSE,fig.width=8, fig.height=10, fig.cap="\\label{fig:figs21}Predicted Neural Networks Using Best Model"}
+```{r figs21, echo=FALSE, message=FALSE, warning=FALSE,fig.width=8, fig.height=10, fig.cap="\\label{fig:figs21}Posterior Predictive Checking for Best Bayesian Model"}
+posterior_predictive_samples <- posterior_predict(brmodel2)
+
+observed_data <- X1_sampled$Y
+
+ggplot() +
+  geom_density(aes(x = posterior_predictive_samples[1, ]), fill = "blue", alpha = 0.5) +
+  geom_density(aes(x = observed_data), color = "red") +
+  labs(title = "Posterior Predictive Checking", x = "y", y = "Density") +
+  theme_minimal()
+```
+
+```{r figs22, echo=FALSE, message=FALSE, warning=FALSE,fig.width=8, fig.height=10, fig.cap="\\label{fig:figs22}Predicted Neural Networks Using Best Model"}
 #Find Non-Zero Coefs for Neural Network Plot
 library(broom)
 library(dplyr)
@@ -981,6 +995,7 @@ network281 = ggplot(color_pos_281, aes(x = x, y = y, color = as.factor(neuron_ty
 
 grid.arrange(network234, network168, network281, ncol = 1)
 ```
+
 
 \clearpage
 
@@ -1613,7 +1628,18 @@ loo_compare(loo2, loo_weak)
 
 ```{r, eval = FALSE, message=FALSE, warning=FALSE}
 #Trace Plots
+posterior_samples <- as.array(brmodel2)
 
+chosen_predictors <- c("b_Intercept", "b_Neuron_3", "b_Neuron_4", "b_Neuron_5", 
+                       "b_Neuron_6", "b_reach", "b_Neuron_3:reach", "b_Neuron_4:reach", "b_Neuron_5:reach")
+
+trace_plots <- mcmc_trace(posterior_samples, pars = chosen_predictors) + 
+  ggtitle("Traceplots for Selected Predictors")
+
+
+trace_plots <- mcmc_trace(posterior_samples, pars = chosen_predictors, facet_args = list(ncol = 3))
+
+trace_plots
 ```
 
 ```{r, eval = FALSE, message=FALSE, warning=FALSE}
@@ -1742,6 +1768,19 @@ mse_model3 <- sapply(test_splits, function(test_df) {
 brms_mse_results <- unlist(brms_mse_results)
 
 full_mse_results <- data.frame(Fold = 1:5, Neuron234 = mse_model1, Neuron168 = mse_model2, Neuron281 =mse_model3, Bayesian = brms_mse_results)
+```
+
+```{r, eval = FALSE, message=FALSE, warning=FALSE}
+#Posterior Predictive Checking
+posterior_predictive_samples <- posterior_predict(brmodel2)
+
+observed_data <- X1_sampled$Y
+
+ggplot() +
+  geom_density(aes(x = posterior_predictive_samples[1, ]), fill = "blue", alpha = 0.5) +
+  geom_density(aes(x = observed_data), color = "red") +
+  labs(title = "Posterior Predictive Checking", x = "y", y = "Density") +
+  theme_minimal()
 ```
 
 ```{r, eval = FALSE, message=FALSE, warning=FALSE}
